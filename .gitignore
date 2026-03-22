@@ -1,0 +1,19 @@
+# Java
+*.class
+
+# Maven
+target/
+
+# Gradle
+.gradle/
+build/
+
+# IntelliJ
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# OS
+.DS_Store

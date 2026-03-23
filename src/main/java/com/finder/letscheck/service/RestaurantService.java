@@ -2,6 +2,7 @@ package com.finder.letscheck.service;
 
 import com.finder.letscheck.dto.RestaurantRequest;
 import com.finder.letscheck.dto.RestaurantResponse;
+import com.finder.letscheck.model.Location;
 import com.finder.letscheck.model.Restaurant;
 import com.finder.letscheck.repository.RestaurantRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,13 +18,31 @@ public class RestaurantService {
 
     public RestaurantResponse saveRestaurant(RestaurantRequest request) {
 
+        String normalizedName = normalizeText(request.getName());
+        String normalizedCity = normalizeText(request.getCity());
+        String normalizedAreaName = normalizeText(request.getAreaName());
+        Location location = new Location(
+                "Point",
+                new double[]{request.getLongitude(), request.getLatitude()}
+        );
+
+        restaurantRepository.findByNormalizedNameAndNormalizedCityAndNormalizedAreaName(
+                normalizedName,
+                normalizedCity,
+                normalizedAreaName
+        ).ifPresent(existing -> {
+            throw new RuntimeException("Restaurant already exists with same name in this area and city");
+        });
+
         Restaurant restaurant = Restaurant.builder()
-                .name(request.getName())
-                .normalizedName(request.getNormalizedName())
-                .fullAddress(request.getFullAddress())
-                .landmark(request.getLandmark())
-                .areaName(request.getAreaName())
-                .city(request.getCity())
+                .name(request.getName().trim())
+                .normalizedName(normalizedName)
+                .fullAddress(request.getFullAddress().trim())
+                .landmark(request.getLandmark() != null ? request.getLandmark().trim() : null)
+                .areaName(request.getAreaName().trim())
+                .normalizedAreaName(normalizedAreaName)
+                .city(request.getCity().trim())
+                .normalizedCity(normalizedCity)
                 .state(request.getState())
                 .country(request.getCountry())
                 .pincode(request.getPincode())
@@ -36,6 +55,7 @@ public class RestaurantService {
                 .status("APPROVED")
                 .isVerified(false)
                 .isActive(true)
+                .location(location)
                 .build();
 
         Restaurant saved = restaurantRepository.save(restaurant);
@@ -64,10 +84,13 @@ public class RestaurantService {
                 .fullAddress(restaurant.getFullAddress())
                 .landmark(restaurant.getLandmark())
                 .areaName(restaurant.getAreaName())
+                .normalizedAreaName(restaurant.getNormalizedAreaName())
                 .city(restaurant.getCity())
+                .normalizedCity(restaurant.getNormalizedCity())
                 .state(restaurant.getState())
                 .country(restaurant.getCountry())
                 .pincode(restaurant.getPincode())
+                .location(restaurant.getLocation())
                 .avgRestaurantRating(restaurant.getAvgRestaurantRating())
                 .ratingCount(restaurant.getRatingCount())
                 .itemCount(restaurant.getItemCount())
@@ -75,5 +98,12 @@ public class RestaurantService {
                 .isVerified(restaurant.getIsVerified())
                 .isActive(restaurant.getIsActive())
                 .build();
+    }
+
+    private String normalizeText(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.trim().toLowerCase().replaceAll("\\s+", " ");
     }
 }

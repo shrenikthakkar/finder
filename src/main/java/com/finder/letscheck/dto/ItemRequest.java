@@ -5,25 +5,28 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-public class RestaurantRequest {
+public class ItemRequest {
 
-    @NotBlank(message = "Restaurant name is required")
-    private String name;
+    // Existing restaurant flow
+    private String restaurantId;
 
-    @NotBlank(message = "Full address is required")
+    // New restaurant flow
+    private String restaurantName;
     private String fullAddress;
-
     private String landmark;
-
-    @NotBlank(message = "Area name is required")
     private String areaName;
-
-    @NotBlank(message = "City is required")
     private String city;
-
     private String state;
     private String country;
     private String pincode;
+
+    @NotBlank(message = "Item name is required")
+    private String itemName;
+
+    private String category;
+    private String subCategory;
+    private Double price;
+    private Boolean isVeg;
 
     @NotNull(message = "Latitude is required")
     private Double latitude;

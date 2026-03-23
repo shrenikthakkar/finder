@@ -1,5 +1,6 @@
 package com.finder.letscheck.dto;
 
+import com.finder.letscheck.model.Location;
 import lombok.Builder;
 import lombok.Data;
 
@@ -8,15 +9,24 @@ import lombok.Data;
 public class RestaurantResponse {
 
     private String id;
+
     private String name;
     private String normalizedName;
+
     private String fullAddress;
     private String landmark;
+
     private String areaName;
+    private String normalizedAreaName;
+
     private String city;
+    private String normalizedCity;
+
     private String state;
     private String country;
     private String pincode;
+
+    private Location location;
 
     private Double avgRestaurantRating;
     private Integer ratingCount;

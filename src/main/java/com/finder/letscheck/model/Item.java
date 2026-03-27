@@ -9,12 +9,26 @@ import org.springframework.data.mongodb.core.index.GeoSpatialIndexType;
 import org.springframework.data.mongodb.core.index.GeoSpatialIndexed;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 
+/**
+ * Item document stored in MongoDB.
+ *
+ * Improvements:
+ * - Single-field indexes help direct field lookups
+ * - Compound indexes help area/city/item search patterns
+ * - Geo index supports nearby searches
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 @Document(collection = "items")
+@CompoundIndexes({
+        @CompoundIndex(name = "city_area_idx", def = "{'normalizedCity': 1, 'normalizedAreaName': 1}"),
+        @CompoundIndex(name = "city_area_item_idx", def = "{'normalizedCity': 1, 'normalizedAreaName': 1, 'normalizedItemName': 1}")
+})
 public class Item {
 
     @Id

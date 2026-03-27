@@ -18,50 +18,68 @@ public class SearchController {
 
     private final SearchService searchService;
 
+    /**
+     * Searches nearby items around a user location.
+     */
     @GetMapping("/items/nearby")
     public List<ItemSearchResponse> searchNearbyItems(
             @RequestParam Double latitude,
             @RequestParam Double longitude,
-            @RequestParam Double radiusInKm
+            @RequestParam Double radiusInKm,
+            @RequestParam(required = false) Integer limit
     ) {
         ItemSearchRequest request = new ItemSearchRequest();
         request.setLatitude(latitude);
         request.setLongitude(longitude);
         request.setRadiusInKm(radiusInKm);
+        request.setLimit(limit);
 
         return searchService.searchNearbyItems(request);
     }
 
+    /**
+     * Searches nearby items for a specific query.
+     */
     @GetMapping("/items/nearby/query")
     public List<ItemSearchResponse> searchNearbyItemsByQuery(
             @RequestParam Double latitude,
             @RequestParam Double longitude,
             @RequestParam Double radiusInKm,
-            @RequestParam String query
+            @RequestParam String query,
+            @RequestParam(required = false) Integer limit
     ) {
         ItemSearchRequest request = new ItemSearchRequest();
         request.setLatitude(latitude);
         request.setLongitude(longitude);
         request.setRadiusInKm(radiusInKm);
         request.setQuery(query);
+        request.setLimit(limit);
 
         return searchService.searchNearbyItemsByQuery(request);
     }
 
+    /**
+     * Searches items by city / area / optional item query.
+     */
     @GetMapping("/items/by-area")
     public List<ItemSearchResponse> searchItemsByArea(
-            @RequestParam String city,
-            @RequestParam String area,
-            @RequestParam(required = false) String query
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String area,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) Integer limit
     ) {
         ItemSearchRequest request = new ItemSearchRequest();
         request.setCity(city);
         request.setArea(area);
         request.setQuery(query);
+        request.setLimit(limit);
 
         return searchService.searchItemsByArea(request);
     }
 
+    /**
+     * Smart search endpoint for raw user text.
+     */
     @GetMapping("/items/smart")
     public List<ItemSearchResponse> smartSearch(
             @RequestParam String query,

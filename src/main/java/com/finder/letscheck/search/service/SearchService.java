@@ -33,8 +33,8 @@ public class SearchService {
      * Searches nearby active items using MongoDB geo filtering.
      *
      * Improvement:
-     * - Uses geo index for fast nearby search
-     * - Applies limit to reduce unnecessary processing
+     * - uses geo index for fast nearby search
+     * - applies result limit for better scalability
      */
     public List<ItemSearchResponse> searchNearbyItems(ItemSearchRequest request) {
         validateNearbySearchRequest(request);
@@ -51,10 +51,10 @@ public class SearchService {
                 Criteria.where("location").nearSphere(userLocation).maxDistance(radius.getNormalizedValue())
         );
 
-        // Only active items should be considered
+        // Only active items should be returned
         query.addCriteria(Criteria.where("isActive").is(true));
 
-        // Fetch only a controlled number of records
+        // Restrict number of fetched records
         query.limit(limit);
 
         List<Item> items = mongoTemplate.find(query, Item.class);
@@ -300,9 +300,9 @@ public class SearchService {
      * Returns a safe result limit.
      *
      * Why:
-     * - Prevents huge result sets from hurting performance
-     * - Gives a default when limit is not provided
-     * - Caps maximum results for stability
+     * - prevents huge result sets from hurting performance
+     * - gives a default when limit is missing
+     * - caps the max allowed results
      */
     private int getSafeLimit(Integer requestedLimit) {
         if (requestedLimit == null || requestedLimit <= 0) {

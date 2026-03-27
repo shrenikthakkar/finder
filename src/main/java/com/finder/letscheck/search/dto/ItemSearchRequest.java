@@ -14,6 +14,8 @@ public class ItemSearchRequest {
     private String city;
     private String area;
 
-    // Maximum number of results to return
+    /**
+     * Maximum number of results to return.
+     */
     private Integer limit;
 }

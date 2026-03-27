@@ -5,20 +5,20 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.GeoSpatialIndexType;
 import org.springframework.data.mongodb.core.index.GeoSpatialIndexed;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.index.CompoundIndex;
-import org.springframework.data.mongodb.core.index.CompoundIndexes;
 
 /**
  * Item document stored in MongoDB.
  *
  * Improvements:
- * - Single-field indexes help direct field lookups
- * - Compound indexes help area/city/item search patterns
- * - Geo index supports nearby searches
+ * - Geo index supports nearby search
+ * - Single field indexes help exact lookup
+ * - Compound indexes help city/area/item search patterns
  */
 @Data
 @NoArgsConstructor

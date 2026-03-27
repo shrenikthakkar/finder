@@ -61,4 +61,14 @@ public class SearchController {
 
         return searchService.searchItemsByArea(request);
     }
+
+    @GetMapping("/items/smart")
+    public List<ItemSearchResponse> smartSearch(
+            @RequestParam String query,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude,
+            @RequestParam(required = false) Double radiusInKm
+    ) {
+        return searchService.smartSearch(query, latitude, longitude, radiusInKm);
+    }
 }

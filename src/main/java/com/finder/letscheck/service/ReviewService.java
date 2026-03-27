@@ -126,4 +126,104 @@ public class ReviewService {
                 .updatedAt(review.getUpdatedAt())
                 .build();
     }
+
+    public ReviewResponse updateReview(String reviewId, Integer newRating, String newComment) {
+
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new RuntimeException("Review not found"));
+
+        if (!"ACTIVE".equals(review.getStatus())) {
+            throw new RuntimeException("Cannot update inactive review");
+        }
+
+        int oldRating = review.getRating();
+
+        // update review
+        review.setRating(newRating);
+        review.setComment(newComment != null ? newComment.trim() : null);
+        review.setIsEdited(true);
+        review.setUpdatedAt(java.time.Instant.now().toString());
+
+        Review savedReview = reviewRepository.save(review);
+
+        // adjust aggregates
+        updateItemAggregateOnUpdate(review.getTargetId(), oldRating, newRating);
+        updateRestaurantAggregateOnUpdate(review.getRestaurantId(), oldRating, newRating);
+
+        return mapToResponse(savedReview);
+    }
+
+    public void deleteReview(String reviewId) {
+
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new RuntimeException("Review not found"));
+
+        if (!"ACTIVE".equals(review.getStatus())) {
+            throw new RuntimeException("Review already inactive");
+        }
+
+        review.setStatus("INACTIVE");
+        review.setUpdatedAt(java.time.Instant.now().toString());
+
+        reviewRepository.save(review);
+
+        int rating = review.getRating();
+
+        updateItemAggregateOnDelete(review.getTargetId(), rating);
+        updateRestaurantAggregateOnDelete(review.getRestaurantId(), rating);
+    }
+
+    private void updateItemAggregateOnDelete(String itemId, int rating) {
+        Item item = itemRepository.findById(itemId)
+                .orElseThrow(() -> new RuntimeException("Item not found"));
+
+        int sum = item.getRatingSum() - rating;
+        int count = item.getRatingCount() - 1;
+
+        item.setRatingSum(sum);
+        item.setRatingCount(count);
+        item.setAvgItemRating(count == 0 ? 0 : (double) sum / count);
+
+        itemRepository.save(item);
+    }
+
+    private void updateRestaurantAggregateOnDelete(String restaurantId, int rating) {
+        Restaurant restaurant = restaurantRepository.findById(restaurantId)
+                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+
+        int sum = restaurant.getRatingSum() - rating;
+        int count = restaurant.getRatingCount() - 1;
+
+        restaurant.setRatingSum(sum);
+        restaurant.setRatingCount(count);
+        restaurant.setAvgRestaurantRating(count == 0 ? 0 : (double) sum / count);
+
+        restaurantRepository.save(restaurant);
+    }
+
+    private void updateItemAggregateOnUpdate(String itemId, int oldRating, int newRating) {
+        Item item = itemRepository.findById(itemId)
+                .orElseThrow(() -> new RuntimeException("Item not found"));
+
+        int sum = item.getRatingSum() - oldRating + newRating;
+        int count = item.getRatingCount();
+
+        item.setRatingSum(sum);
+        item.setAvgItemRating((double) sum / count);
+
+        itemRepository.save(item);
+    }
+
+    private void updateRestaurantAggregateOnUpdate(String restaurantId, int oldRating, int newRating) {
+        Restaurant restaurant = restaurantRepository.findById(restaurantId)
+                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+
+        int sum = restaurant.getRatingSum() - oldRating + newRating;
+        int count = restaurant.getRatingCount();
+
+        restaurant.setRatingSum(sum);
+        restaurant.setAvgRestaurantRating((double) sum / count);
+
+        restaurantRepository.save(restaurant);
+    }
 }

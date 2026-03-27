@@ -30,4 +30,19 @@ public class ReviewController {
     public List<ReviewResponse> getReviewsByUser(@PathVariable String userId) {
         return reviewService.getReviewsByUser(userId);
     }
+
+    @PutMapping("/{reviewId}")
+    public ReviewResponse updateReview(
+            @PathVariable String reviewId,
+            @RequestParam Integer rating,
+            @RequestParam(required = false) String comment
+    ) {
+        return reviewService.updateReview(reviewId, rating, comment);
+    }
+
+    @DeleteMapping("/{reviewId}")
+    public String deleteReview(@PathVariable String reviewId) {
+        reviewService.deleteReview(reviewId);
+        return "Review deleted successfully";
+    }
 }

@@ -4,6 +4,7 @@ import com.finder.letscheck.model.Item;
 import com.finder.letscheck.repository.ItemRepository;
 import com.finder.letscheck.search.dto.ItemSearchRequest;
 import com.finder.letscheck.search.dto.ItemSearchResponse;
+import com.finder.letscheck.search.parser.QueryParserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.geo.Distance;
@@ -13,6 +14,9 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
+import com.finder.letscheck.search.parser.QueryParseResult;
+import com.finder.letscheck.search.parser.QueryParserService;
+
 
 import java.util.Comparator;
 import java.util.List;
@@ -21,6 +25,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SearchService {
 
+    private final QueryParserService queryParserService;
     private final MongoTemplate mongoTemplate;
     private final ItemRepository itemRepository;
 
@@ -72,34 +77,23 @@ public class SearchService {
     }
 
     public List<ItemSearchResponse> searchItemsByArea(ItemSearchRequest request) {
-        if (request.getCity() == null || request.getCity().isBlank()) {
-            throw new RuntimeException("City is required for area search");
-        }
-        if (request.getArea() == null || request.getArea().isBlank()) {
-            throw new RuntimeException("Area is required for area search");
+        if ((request.getCity() == null || request.getCity().isBlank())
+                && (request.getArea() == null || request.getArea().isBlank())) {
+            throw new RuntimeException("Either city or area is required for area search");
         }
 
-        String normalizedCity = normalizeText(request.getCity());
-        String normalizedArea = normalizeText(request.getArea());
+        String normalizedCity = request.getCity() != null ? normalizeText(request.getCity()) : null;
+        String normalizedArea = request.getArea() != null ? normalizeText(request.getArea()) : null;
+        String normalizedQuery = request.getQuery() != null ? normalizeText(request.getQuery()) : null;
 
-        List<Item> items;
-
-        if (request.getQuery() != null && !request.getQuery().isBlank()) {
-            String normalizedQuery = normalizeText(request.getQuery());
-            items = itemRepository.findByNormalizedCityAndNormalizedAreaNameAndNormalizedItemName(
-                    normalizedCity,
-                    normalizedArea,
-                    normalizedQuery
-            );
-        } else {
-            items = itemRepository.findByNormalizedCityAndNormalizedAreaName(
-                    normalizedCity,
-                    normalizedArea
-            );
-        }
+        List<Item> items = itemRepository.findAll().stream()
+                .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
+                .filter(item -> normalizedCity == null || normalizedCity.equals(item.getNormalizedCity()))
+                .filter(item -> normalizedArea == null || normalizedArea.equals(item.getNormalizedAreaName()))
+                .filter(item -> normalizedQuery == null || normalizedQuery.equals(item.getNormalizedItemName()))
+                .toList();
 
         return items.stream()
-                .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
                 .map(item -> mapToSearchResponse(item, null, null))
                 .sorted(defaultSearchComparator())
                 .toList();
@@ -166,5 +160,46 @@ public class SearchService {
 
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return earthRadius * c;
+    }
+
+    public List<ItemSearchResponse> smartSearch(String rawQuery, Double latitude, Double longitude, Double radiusInKm) {
+        QueryParseResult parsed = queryParserService.parse(rawQuery);
+
+        System.out.println("Parsed query => item: " + parsed.getCanonicalItem()
+                + ", city: " + parsed.getCity()
+                + ", area: " + parsed.getArea()
+                + ", nearMe: " + parsed.isNearMeIntent());
+
+        if (parsed.getArea() != null || parsed.getCity() != null) {
+            ItemSearchRequest request = new ItemSearchRequest();
+            request.setCity(parsed.getCity());
+            request.setArea(parsed.getArea());
+            request.setQuery(parsed.getCanonicalItem());
+            return searchItemsByArea(request);
+        }
+
+        if (parsed.isNearMeIntent() || (latitude != null && longitude != null)) {
+            ItemSearchRequest request = new ItemSearchRequest();
+            request.setLatitude(latitude);
+            request.setLongitude(longitude);
+            request.setRadiusInKm(radiusInKm != null ? radiusInKm : 5.0);
+            request.setQuery(parsed.getCanonicalItem());
+
+            if (parsed.getCanonicalItem() != null) {
+                return searchNearbyItemsByQuery(request);
+            }
+            return searchNearbyItems(request);
+        }
+
+        if (parsed.getCanonicalItem() != null) {
+            return itemRepository.findByNormalizedItemName(parsed.getCanonicalItem())
+                    .stream()
+                    .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
+                    .map(item -> mapToSearchResponse(item, latitude, longitude))
+                    .sorted(defaultSearchComparator())
+                    .toList();
+        }
+
+        return List.of();
     }
 }

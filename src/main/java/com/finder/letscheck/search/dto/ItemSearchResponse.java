@@ -19,4 +19,10 @@ public class ItemSearchResponse {
     private Integer ratingCount;
 
     private Double distanceInKm;
+
+    /**
+     * Whether current user has already bookmarked this item.
+     * Null/false for guest users.
+     */
+    private Boolean isBookmarked;
 }

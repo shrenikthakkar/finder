@@ -3,11 +3,14 @@ package com.finder.letscheck.search.controller;
 import com.finder.letscheck.search.dto.ItemSearchRequest;
 import com.finder.letscheck.search.dto.ItemSearchResponse;
 import com.finder.letscheck.search.service.SearchService;
+import com.finder.letscheck.search.service.SuggestionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.finder.letscheck.search.dto.SuggestionResponse;
+import com.finder.letscheck.search.service.SuggestionService;
 
 import java.util.List;
 
@@ -17,6 +20,7 @@ import java.util.List;
 public class SearchController {
 
     private final SearchService searchService;
+    private final SuggestionService suggestionService;
 
     /**
      * Searches nearby items around a user location.
@@ -26,13 +30,15 @@ public class SearchController {
             @RequestParam Double latitude,
             @RequestParam Double longitude,
             @RequestParam Double radiusInKm,
-            @RequestParam(required = false) Integer limit
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String userId
     ) {
         ItemSearchRequest request = new ItemSearchRequest();
         request.setLatitude(latitude);
         request.setLongitude(longitude);
         request.setRadiusInKm(radiusInKm);
         request.setLimit(limit);
+        request.setUserId(userId);
 
         return searchService.searchNearbyItems(request);
     }
@@ -46,7 +52,8 @@ public class SearchController {
             @RequestParam Double longitude,
             @RequestParam Double radiusInKm,
             @RequestParam String query,
-            @RequestParam(required = false) Integer limit
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String userId
     ) {
         ItemSearchRequest request = new ItemSearchRequest();
         request.setLatitude(latitude);
@@ -54,7 +61,7 @@ public class SearchController {
         request.setRadiusInKm(radiusInKm);
         request.setQuery(query);
         request.setLimit(limit);
-
+        request.setUserId(userId);
         return searchService.searchNearbyItemsByQuery(request);
     }
 
@@ -66,13 +73,15 @@ public class SearchController {
             @RequestParam(required = false) String city,
             @RequestParam(required = false) String area,
             @RequestParam(required = false) String query,
-            @RequestParam(required = false) Integer limit
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String userId
     ) {
         ItemSearchRequest request = new ItemSearchRequest();
         request.setCity(city);
         request.setArea(area);
         request.setQuery(query);
         request.setLimit(limit);
+        request.setUserId(userId);
 
         return searchService.searchItemsByArea(request);
     }
@@ -85,8 +94,24 @@ public class SearchController {
             @RequestParam String query,
             @RequestParam(required = false) Double latitude,
             @RequestParam(required = false) Double longitude,
-            @RequestParam(required = false) Double radiusInKm
+            @RequestParam(required = false) Double radiusInKm,
+            @RequestParam(required = false) String userId
     ) {
-        return searchService.smartSearch(query, latitude, longitude, radiusInKm);
+        return searchService.smartSearch(query, latitude, longitude, radiusInKm,userId);
+    }
+
+    /**
+     * Returns autocomplete suggestions for partial user input.
+     *
+     * Why:
+     * - improves search experience before full search
+     * - helps users discover canonical names, aliases, cities, and areas
+     */
+    @GetMapping("/suggestions")
+    public List<SuggestionResponse> getSuggestions(
+            @RequestParam String query,
+            @RequestParam(required = false) Integer limit
+    ) {
+        return suggestionService.getSuggestions(query, limit);
     }
 }

@@ -2,6 +2,7 @@ package com.finder.letscheck.search.service;
 
 import com.finder.letscheck.model.Item;
 import com.finder.letscheck.repository.ItemRepository;
+import com.finder.letscheck.repository.UserBucketListRepository;
 import com.finder.letscheck.search.dto.ItemSearchRequest;
 import com.finder.letscheck.search.dto.ItemSearchResponse;
 import com.finder.letscheck.search.parser.QueryParserService;
@@ -16,6 +17,8 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 import com.finder.letscheck.search.parser.QueryParseResult;
 import com.finder.letscheck.search.parser.QueryParserService;
+import com.finder.letscheck.model.UserBucketList;
+import com.finder.letscheck.repository.UserBucketListRepository;
 
 
 import java.util.Comparator;
@@ -28,6 +31,7 @@ public class SearchService {
     private final QueryParserService queryParserService;
     private final MongoTemplate mongoTemplate;
     private final ItemRepository itemRepository;
+    private final UserBucketListRepository userBucketListRepository;
 
     /**
      * Searches nearby active items using MongoDB geo filtering.
@@ -59,10 +63,12 @@ public class SearchService {
 
         List<Item> items = mongoTemplate.find(query, Item.class);
 
-        return items.stream()
+        List<ItemSearchResponse> results = items.stream()
                 .map(item -> mapToSearchResponse(item, request.getLatitude(), request.getLongitude()))
                 .sorted(defaultSearchComparator())
                 .toList();
+
+        return attachBookmarkStatus(results, request.getUserId());
     }
 
     /**
@@ -104,10 +110,12 @@ public class SearchService {
 
         List<Item> items = mongoTemplate.find(query, Item.class);
 
-        return items.stream()
+        List<ItemSearchResponse> results = items.stream()
                 .map(item -> mapToSearchResponse(item, request.getLatitude(), request.getLongitude()))
                 .sorted(defaultSearchComparator())
                 .toList();
+
+        return attachBookmarkStatus(results, request.getUserId());
     }
 
     /**
@@ -167,19 +175,31 @@ public class SearchService {
 
         List<Item> items = mongoTemplate.find(mongoQuery, Item.class);
 
-        return items.stream()
+        List<ItemSearchResponse> results = items.stream()
                 .map(item -> mapToSearchResponse(item, null, null))
                 .sorted(defaultSearchComparator())
                 .toList();
+
+        return attachBookmarkStatus(results, request.getUserId());
     }
 
+    /**
+     * Converts Item entity to search response DTO.
+     *
+     * Note:
+     * - bookmark status is filled later in bulk
+     */
     private ItemSearchResponse mapToSearchResponse(Item item, Double userLat, Double userLng) {
         Double distanceInKm = null;
 
-        if (userLat != null && userLng != null && item.getLocation() != null && item.getLocation().getCoordinates() != null
+        if (userLat != null && userLng != null
+                && item.getLocation() != null
+                && item.getLocation().getCoordinates() != null
                 && item.getLocation().getCoordinates().length == 2) {
+
             double itemLng = item.getLocation().getCoordinates()[0];
             double itemLat = item.getLocation().getCoordinates()[1];
+
             distanceInKm = calculateDistanceInKm(userLat, userLng, itemLat, itemLng);
         }
 
@@ -193,6 +213,7 @@ public class SearchService {
                 .avgItemRating(item.getAvgItemRating())
                 .ratingCount(item.getRatingCount())
                 .distanceInKm(distanceInKm)
+                .isBookmarked(false)
                 .build();
     }
 
@@ -244,7 +265,7 @@ public class SearchService {
      * - Chooses best search strategy
      * - Applies safe result limits for stable performance
      */
-    public List<ItemSearchResponse> smartSearch(String rawQuery, Double latitude, Double longitude, Double radiusInKm) {
+    public List<ItemSearchResponse> smartSearch(String rawQuery, Double latitude, Double longitude, Double radiusInKm, String userId) {
         QueryParseResult parsed = queryParserService.parse(rawQuery);
 
         System.out.println("Parsed query => item: " + parsed.getCanonicalItem()
@@ -259,6 +280,7 @@ public class SearchService {
             request.setArea(parsed.getArea());
             request.setQuery(parsed.getCanonicalItem());
             request.setLimit(20);
+            request.setUserId(userId);
             return searchItemsByArea(request);
         }
 
@@ -270,6 +292,7 @@ public class SearchService {
             request.setRadiusInKm(radiusInKm != null ? radiusInKm : 5.0);
             request.setQuery(parsed.getCanonicalItem());
             request.setLimit(20);
+            request.setUserId(userId);
 
             if (parsed.getCanonicalItem() != null) {
                 return searchNearbyItemsByQuery(request);
@@ -287,10 +310,12 @@ public class SearchService {
 
             List<Item> items = mongoTemplate.find(mongoQuery, Item.class);
 
-            return items.stream()
+            List<ItemSearchResponse> results = items.stream()
                     .map(item -> mapToSearchResponse(item, latitude, longitude))
                     .sorted(defaultSearchComparator())
                     .toList();
+
+            return attachBookmarkStatus(results, userId);
         }
 
         return List.of();
@@ -309,5 +334,48 @@ public class SearchService {
             return 20;
         }
         return Math.min(requestedLimit, 50);
+    }
+
+    /**
+     * Enriches search results with bookmark information for the current user.
+     *
+     * Why:
+     * - avoids one DB call per item
+     * - fetches all bookmarks in one query
+     * - keeps latency low and scalable
+     */
+    private List<ItemSearchResponse> attachBookmarkStatus(List<ItemSearchResponse> results, String userId) {
+
+        // If user is not logged in or result list is empty, default bookmark status to false
+        if (userId == null || userId.isBlank() || results == null || results.isEmpty()) {
+            return results.stream()
+                    .map(result -> {
+                        result.setIsBookmarked(false);
+                        return result;
+                    })
+                    .toList();
+        }
+
+        // Collect all item IDs from search results
+        List<String> itemIds = results.stream()
+                .map(ItemSearchResponse::getItemId)
+                .toList();
+
+        // Fetch all matching bookmarked items in one DB query
+        List<UserBucketList> bookmarkedEntries =
+                userBucketListRepository.findByUserIdAndItemIdInAndIsActiveTrue(userId, itemIds);
+
+        // Convert bookmarked item IDs into a set for O(1) lookup
+        java.util.Set<String> bookmarkedItemIds = bookmarkedEntries.stream()
+                .map(UserBucketList::getItemId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        // Mark each result with bookmark status
+        return results.stream()
+                .map(result -> {
+                    result.setIsBookmarked(bookmarkedItemIds.contains(result.getItemId()));
+                    return result;
+                })
+                .toList();
     }
 }

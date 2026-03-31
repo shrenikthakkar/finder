@@ -6,7 +6,6 @@ import com.finder.letscheck.dto.SuggestionReviewRequest;
 import com.finder.letscheck.model.Item;
 import com.finder.letscheck.dto.ItemResponse;
 import com.finder.letscheck.dto.ItemRequest;
-import com.finder.letscheck.service.ItemService;
 import com.finder.letscheck.model.RewardTransaction;
 import com.finder.letscheck.model.Suggestion;
 import com.finder.letscheck.model.User;
@@ -58,6 +57,8 @@ public class ContributionSuggestionService {
                 .currency(request.getCurrency())
                 .isVeg(request.getIsVeg())
                 .note(request.getNote())
+                .latitude(request.getLatitude())
+                .longitude(request.getLongitude())
                 .status(SuggestionStatus.PENDING_REVIEW)
                 .linkedItemId(null)
                 .rewardPointsGranted(0)
@@ -186,6 +187,18 @@ public class ContributionSuggestionService {
         Item item = itemRepository.findById(request.getLinkedItemId())
                 .orElseThrow(() -> new RuntimeException("Linked item not found"));
 
+        // If suggestion had coordinates and the existing item has no location set,
+        // apply suggestion coordinates to the item so location information is preserved.
+        if ((suggestion.getLatitude() != null && suggestion.getLongitude() != null)
+                && (item.getLocation() == null)) {
+            com.finder.letscheck.model.Location loc = new com.finder.letscheck.model.Location(
+                    "Point",
+                    new double[]{suggestion.getLongitude(), suggestion.getLatitude()}
+            );
+            item.setLocation(loc);
+            itemRepository.save(item);
+        }
+
         suggestion.setStatus(SuggestionStatus.APPROVED_MERGED);
         suggestion.setLinkedItemId(item.getId());
         suggestion.setRewardPointsGranted(REWARD_POINTS_APPROVED_MERGED);
@@ -300,6 +313,8 @@ public class ContributionSuggestionService {
                 .reviewReason(suggestion.getReviewReason())
                 .createdAt(suggestion.getCreatedAt())
                 .reviewedAt(suggestion.getReviewedAt())
+                .latitude(suggestion.getLatitude())
+                .longitude(suggestion.getLongitude())
                 .build();
     }
 

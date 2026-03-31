@@ -41,4 +41,8 @@ public class SuggestionResponse {
 
     private String createdAt;
     private String reviewedAt;
+
+    // Optional coordinates provided with the suggestion
+    private Double latitude;
+    private Double longitude;
 }

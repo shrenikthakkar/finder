@@ -1,7 +1,7 @@
 package com.finder.letscheck.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+// latitude/longitude are optional for programmatic flows (e.g. creating from suggestions)
 import lombok.Data;
 
 @Data
@@ -28,10 +28,10 @@ public class ItemRequest {
     private Double price;
     private Boolean isVeg;
 
-    @NotNull(message = "Latitude is required")
+    // Optional latitude (may be null for suggestions)
     private Double latitude;
 
-    @NotNull(message = "Longitude is required")
+    // Optional longitude (may be null for suggestions)
     private Double longitude;
 
     private String createdBy;

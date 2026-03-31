@@ -57,4 +57,25 @@ public class User {
     private String createdAt;
 
     private String updatedAt;
+
+    /**
+     * Current reward points balance.
+     */
+    private Integer rewardPointsBalance;
+
+    /**
+     * Total approved contribution count.
+     */
+    private Integer approvedContributionCount;
+
+    /**
+     * Total pending contribution count.
+     */
+    private Integer pendingContributionCount;
+
+    /**
+     * Total rejected contribution count.
+     */
+    private Integer rejectedContributionCount;
+
 }

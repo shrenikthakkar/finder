@@ -1,5 +1,6 @@
 package com.finder.letscheck.service;
 
+import com.finder.letscheck.dto.UserProfileSummaryResponse;
 import com.finder.letscheck.dto.UserRequest;
 import com.finder.letscheck.dto.UserResponse;
 import com.finder.letscheck.model.User;
@@ -33,6 +34,10 @@ public class UserService {
                 .role("USER")
                 .isActive(true)
                 .isProfilePublic(true)
+                .rewardPointsBalance(0)
+                .approvedContributionCount(0)
+                .pendingContributionCount(0)
+                .rejectedContributionCount(0)
                 .createdAt(Instant.now().toString())
                 .updatedAt(Instant.now().toString())
                 .build();
@@ -64,5 +69,23 @@ public class UserService {
                 .citiesVisited(user.getCitiesVisited())
                 .citiesVisitedCount(user.getCitiesVisitedCount())
                 .build();
+    }
+
+    public UserProfileSummaryResponse getUserSummary(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        return UserProfileSummaryResponse.builder()
+                .userId(user.getId())
+                .name(user.getName())
+                .rewardPoints(safeInt(user.getRewardPointsBalance()))
+                .approvedContributions(safeInt(user.getApprovedContributionCount()))
+                .pendingContributions(safeInt(user.getPendingContributionCount()))
+                .rejectedContributions(safeInt(user.getRejectedContributionCount()))
+                .build();
+    }
+
+    private int safeInt(Integer value) {
+        return value == null ? 0 : value;
     }
 }

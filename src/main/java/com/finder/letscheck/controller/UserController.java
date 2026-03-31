@@ -1,5 +1,6 @@
 package com.finder.letscheck.controller;
 
+import com.finder.letscheck.dto.UserProfileSummaryResponse;
 import com.finder.letscheck.dto.UserRequest;
 import com.finder.letscheck.dto.UserResponse;
 import com.finder.letscheck.service.UserService;
@@ -21,5 +22,10 @@ public class UserController {
     @GetMapping("/{id}")
     public UserResponse getUser(@PathVariable String id) {
         return userService.getUser(id);
+    }
+
+    @GetMapping("/{userId}/summary")
+    public UserProfileSummaryResponse getUserSummary(@PathVariable String userId) {
+        return userService.getUserSummary(userId);
     }
 }

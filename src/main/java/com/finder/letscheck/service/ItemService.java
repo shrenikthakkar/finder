@@ -14,6 +14,11 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+/**
+ * Service for managing items. Responsible for creating items and creating
+ * restaurants when needed. Coordinates (latitude/longitude) are optional
+ * and will only be set on Item/Restaurant when provided.
+ */
 public class ItemService {
 
     private final ItemRepository itemRepository;
@@ -38,10 +43,13 @@ public class ItemService {
                     normalizedCity,
                     normalizedAreaName
             ).orElseGet(() -> {
-                Location restaurantLocation = new Location(
-                        "Point",
-                        new double[]{request.getLongitude(), request.getLatitude()}
-                );
+                Location restaurantLocation = null;
+                if (request.getLongitude() != null && request.getLatitude() != null) {
+                    restaurantLocation = new Location(
+                            "Point",
+                            new double[]{request.getLongitude(), request.getLatitude()}
+                    );
+                }
 
                 Restaurant newRestaurant = Restaurant.builder()
                         .name(request.getRestaurantName().trim())
@@ -80,10 +88,13 @@ public class ItemService {
             throw new RuntimeException("Item already exists in this restaurant");
         });
 
-        Location itemLocation = new Location(
-                "Point",
-                new double[]{request.getLongitude(), request.getLatitude()}
-        );
+        Location itemLocation = null;
+        if (request.getLongitude() != null && request.getLatitude() != null) {
+            itemLocation = new Location(
+                    "Point",
+                    new double[]{request.getLongitude(), request.getLatitude()}
+            );
+        }
 
         Item item = Item.builder()
                 .restaurantId(restaurant.getId())

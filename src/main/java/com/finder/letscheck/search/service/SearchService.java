@@ -330,21 +330,34 @@ public class SearchService {
             return searchItemsByArea(request);
         }
 
-        // If query indicates nearby intent or coordinates are available, use nearby search
+        /**
+         * If query indicates nearby intent or coordinates are available, prefer nearby search.
+         *
+         * Fallback behavior:
+         * - if nearby intent exists but location is missing, do not call nearby search
+         * - fallback to item-only search instead of failing
+         */
         if (parsed.isNearMeIntent() || (latitude != null && longitude != null)) {
-            ItemSearchRequest request = new ItemSearchRequest();
-            request.setLatitude(latitude);
-            request.setLongitude(longitude);
-            request.setRadiusInKm(radiusInKm != null ? radiusInKm : 5.0);
-            request.setQuery(parsed.getCanonicalItem());
-            request.setLimit(20);
-            request.setUserId(userId);
 
-            if (parsed.getCanonicalItem() != null) {
-                return searchNearbyItemsByQuery(request);
+            // Only call nearby search when coordinates are actually available.
+            if (latitude != null && longitude != null) {
+                ItemSearchRequest request = new ItemSearchRequest();
+                request.setLatitude(latitude);
+                request.setLongitude(longitude);
+                request.setRadiusInKm(radiusInKm != null ? radiusInKm : 5.0);
+                request.setQuery(parsed.getCanonicalItem());
+                request.setLimit(20);
+                request.setUserId(userId);
+
+                if (parsed.getCanonicalItem() != null) {
+                    return searchNearbyItemsByQuery(request);
+                }
+
+                return searchNearbyItems(request);
             }
 
-            return searchNearbyItems(request);
+            // Nearby intent exists, but no coordinates were supplied.
+            // Fall through to the item-only fallback below.
         }
 
         // Fallback: item-only search without location

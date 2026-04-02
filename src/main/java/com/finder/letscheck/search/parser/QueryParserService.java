@@ -30,7 +30,8 @@ public class QueryParserService {
 
         String canonicalItem = resolveCanonicalItemFromSentence(normalizedQuery);
 
-        boolean nearMeIntent = containsAny(normalizedQuery, "near me", "nearby", "around me");
+        boolean nearMeIntent = containsAny(normalizedQuery, "near me",
+                "nearby", "around me", "near by me", "nearby me", "close to me", "close by me", "near my location");
         boolean areaIntent = area != null || city != null || normalizedQuery.contains(" in ");
 
         return QueryParseResult.builder()

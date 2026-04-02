@@ -46,7 +46,7 @@ public class ReviewService {
                 .restaurantId(item.getRestaurantId())
                 .restaurantName(item.getRestaurantName())
                 .rating(request.getRating())
-                .comment(request.getComment() != null ? request.getComment().trim() : null)
+                .comment(normalizeAndValidateComment(request.getComment()))
                 .status("ACTIVE")
                 .isEdited(false)
                 .createdAt(now)
@@ -108,6 +108,30 @@ public class ReviewService {
         restaurantRepository.save(restaurant);
     }
 
+    /**
+     * Validates and normalizes review comment text.
+     *
+     * Rules for launch:
+     * - comment is optional
+     * - trim extra spaces
+     * - allow short, meaningful reviews only
+     * - reject overly lengthy text to keep launch-stage data compact
+     */
+    private String normalizeAndValidateComment(String comment) {
+        if (comment == null || comment.isBlank()) {
+            return null;
+        }
+
+        String normalized = comment.trim().replaceAll("\\s+", " ");
+
+        int wordCount = normalized.split(" ").length;
+        if (wordCount > 20) {
+            throw new RuntimeException("Review comment can have at most 20 words");
+        }
+
+        return normalized;
+    }
+
     private ReviewResponse mapToResponse(Review review) {
         return ReviewResponse.builder()
                 .id(review.getId())
@@ -140,7 +164,7 @@ public class ReviewService {
 
         // update review
         review.setRating(newRating);
-        review.setComment(newComment != null ? newComment.trim() : null);
+        review.setComment(normalizeAndValidateComment(newComment));
         review.setIsEdited(true);
         review.setUpdatedAt(java.time.Instant.now().toString());
 

@@ -6,6 +6,7 @@ import com.finder.letscheck.repository.UserBucketListRepository;
 import com.finder.letscheck.search.dto.ItemSearchRequest;
 import com.finder.letscheck.search.dto.ItemSearchResponse;
 import com.finder.letscheck.search.parser.QueryParserService;
+import com.finder.letscheck.service.SearchAnalyticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.geo.Distance;
@@ -19,6 +20,8 @@ import com.finder.letscheck.search.parser.QueryParseResult;
 import com.finder.letscheck.search.parser.QueryParserService;
 import com.finder.letscheck.model.UserBucketList;
 import com.finder.letscheck.repository.UserBucketListRepository;
+import com.finder.letscheck.dto.SearchAnalyticsRequest;
+import com.finder.letscheck.model.enums.SearchSource;
 
 
 import java.util.Comparator;
@@ -32,6 +35,7 @@ public class SearchService {
     private final MongoTemplate mongoTemplate;
     private final ItemRepository itemRepository;
     private final UserBucketListRepository userBucketListRepository;
+    private final SearchAnalyticsService searchAnalyticsService;
 
     /**
      * Searches nearby active items using MongoDB geo filtering.
@@ -67,6 +71,20 @@ public class SearchService {
                 .map(item -> mapToSearchResponse(item, request.getLatitude(), request.getLongitude()))
                 .sorted(defaultSearchComparator())
                 .toList();
+
+        searchAnalyticsService.logSearchAsync(
+                SearchAnalyticsRequest.builder()
+                        .query("nearby_search")
+                        .normalizedQuery("nearby_search")
+                        .userId(request.getUserId())
+                        .city(null)
+                        .areaName(null)
+                        .latitude(request.getLatitude())
+                        .longitude(request.getLongitude())
+                        .source(SearchSource.NEARBY_SEARCH)
+                        .resultCount(results.size())
+                        .build()
+        );
 
         return attachBookmarkStatus(results, request.getUserId());
     }
@@ -114,6 +132,20 @@ public class SearchService {
                 .map(item -> mapToSearchResponse(item, request.getLatitude(), request.getLongitude()))
                 .sorted(defaultSearchComparator())
                 .toList();
+
+        searchAnalyticsService.logSearchAsync(
+                SearchAnalyticsRequest.builder()
+                        .query(request.getQuery())
+                        .normalizedQuery(normalize(request.getQuery()))
+                        .userId(request.getUserId())
+                        .city(null)
+                        .areaName(null)
+                        .latitude(request.getLatitude())
+                        .longitude(request.getLongitude())
+                        .source(SearchSource.NEARBY_QUERY_SEARCH)
+                        .resultCount(results.size())
+                        .build()
+        );
 
         return attachBookmarkStatus(results, request.getUserId());
     }
@@ -179,6 +211,20 @@ public class SearchService {
                 .map(item -> mapToSearchResponse(item, null, null))
                 .sorted(defaultSearchComparator())
                 .toList();
+
+        searchAnalyticsService.logSearchAsync(
+                SearchAnalyticsRequest.builder()
+                        .query(request.getQuery())
+                        .normalizedQuery(normalize(request.getQuery()))
+                        .userId(request.getUserId())
+                        .city(request.getCity())
+                        .areaName(request.getArea())
+                        .latitude(null)
+                        .longitude(null)
+                        .source(SearchSource.AREA_SEARCH)
+                        .resultCount(results.size())
+                        .build()
+        );
 
         return attachBookmarkStatus(results, request.getUserId());
     }
@@ -315,6 +361,20 @@ public class SearchService {
                     .sorted(defaultSearchComparator())
                     .toList();
 
+            searchAnalyticsService.logSearchAsync(
+                    SearchAnalyticsRequest.builder()
+                            .query(rawQuery)
+                            .normalizedQuery(normalize(rawQuery))
+                            .userId(userId)
+                            .city(null)
+                            .areaName(null)
+                            .latitude(latitude)
+                            .longitude(longitude)
+                            .source(SearchSource.SMART_SEARCH)
+                            .resultCount(results.size())
+                            .build()
+            );
+
             return attachBookmarkStatus(results, userId);
         }
 
@@ -334,6 +394,10 @@ public class SearchService {
             return 20;
         }
         return Math.min(requestedLimit, 50);
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase().replaceAll("\\s+", " ");
     }
 
     /**

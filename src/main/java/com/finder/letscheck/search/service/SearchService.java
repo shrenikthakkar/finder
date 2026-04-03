@@ -115,11 +115,12 @@ public class SearchService {
     }
 
     /**
-     * Searches nearby active items for a specific normalized item query.
+     * Searches nearby items filtered by smart item-text matching.
      *
-     * Improvement:
-     * - Uses geo filtering + exact normalized item match
-     * - Limits results for better performance
+     * Why this exists:
+     * - exact equality was too strict for real user queries
+     * - users may type partial, reordered, or fuzzy text
+     * - nearby search should still return only relevant items, not all nearby items
      */
     public List<ItemSearchResponse> searchNearbyItemsByQuery(ItemSearchRequest request) {
         validateNearbySearchRequest(request);
@@ -135,6 +136,7 @@ public class SearchService {
         Point userLocation = new Point(request.getLongitude(), request.getLatitude());
         Distance radius = new Distance(request.getRadiusInKm(), Metrics.KILOMETERS);
 
+        // First filter by geo boundary + active items.
         query.addCriteria(
                 Criteria.where("location")
                         .nearSphere(userLocation)
@@ -142,6 +144,7 @@ public class SearchService {
         );
         query.addCriteria(Criteria.where("isActive").is(true));
 
+        // Then narrow down candidates using regex token filtering before scoring.
         List<String> tokens = extractMeaningfulTokens(request.getQuery());
         Criteria tokenCriteria = buildAnyTokenRegexCriteria(tokens);
         if (tokenCriteria != null) {
@@ -176,21 +179,13 @@ public class SearchService {
     }
 
     /**
-     * Searches items by city / area / item query using MongoDB filtering
-     * instead of loading all items in memory and filtering in Java.
+     * Searches items within a city and/or area.
      *
-     * Improvement:
-     * - Better performance for large datasets
-     * - Less memory usage in backend
-     * - Better scalability
-     */
-    /**
-     * Searches active items by city / area / item query using MongoDB filtering.
-     *
-     * Improvement:
-     * - Avoids loading all items into memory
-     * - Uses database filtering for scale
-     * - Applies result limits for performance stability
+     * Search behavior:
+     * - city and/or area act as the location filter
+     * - query text is optional
+     * - if query exists, apply smart partial/prefix/fuzzy item matching
+     * - if query is absent, return best available items for that area
      */
     public List<ItemSearchResponse> searchItemsByArea(ItemSearchRequest request) {
         if ((request.getCity() == null || request.getCity().isBlank())
@@ -215,6 +210,7 @@ public class SearchService {
             mongoQuery.addCriteria(Criteria.where("normalizedAreaName").is(normalizedArea));
         }
 
+        // Use token regex filtering only when there is meaningful item text.
         List<String> tokens = extractMeaningfulTokens(request.getQuery());
         Criteria tokenCriteria = buildAnyTokenRegexCriteria(tokens);
         if (tokenCriteria != null) {
@@ -329,12 +325,17 @@ public class SearchService {
     }
 
     /**
-     * Smart search entry point for raw user queries.
+     * Main smart-search entry point used by the app.
      *
-     * Improvement:
-     * - Parses user sentence into structured search input
-     * - Chooses best search strategy
-     * - Applies safe result limits for stable performance
+     * Search strategy order:
+     * 1. If query clearly contains city/area -> area search
+     * 2. If query has near-me intent or coordinates exist -> nearby search
+     * 3. Otherwise -> item-only smart fallback search
+     *
+     * Why this order:
+     * - explicit location in query should be respected first
+     * - near-me should use geo search whenever coordinates are available
+     * - item-only fallback should still work for broad or messy queries
      */
     public List<ItemSearchResponse> smartSearch(
             String rawQuery,
@@ -354,7 +355,7 @@ public class SearchService {
 
         String effectiveSearchText = deriveEffectiveSearchText(rawQuery, parsed);
 
-        // 1) Prefer area/city search when a location is parsed from query.
+        // 1) Prefer area/city search when location is explicitly present in query.
         if (parsed.getArea() != null || parsed.getCity() != null) {
             ItemSearchRequest request = new ItemSearchRequest();
             request.setCity(parsed.getCity());
@@ -365,7 +366,7 @@ public class SearchService {
             return searchItemsByArea(request);
         }
 
-        // 2) Nearby search when user intent is near-me or coordinates are present.
+        // 2) Use nearby search when user intent is near-me or coordinates are available.
         if (parsed.isNearMeIntent() || (latitude != null && longitude != null)) {
             if (latitude != null && longitude != null) {
                 ItemSearchRequest request = new ItemSearchRequest();
@@ -376,16 +377,21 @@ public class SearchService {
                 request.setLimit(20);
                 request.setUserId(userId);
 
+                // If query still contains meaningful item text, nearby search should
+                // filter to matching items only instead of returning all nearby items.
                 if (effectiveSearchText != null && !effectiveSearchText.isBlank()) {
                     return searchNearbyItemsByQuery(request);
                 }
 
+                // If no item text remains, return generic nearby items.
                 return searchNearbyItems(request);
             }
-            // no location available -> fall through to item-only fallback
+
+            // Near-me intent exists, but location is unavailable.
+            // Fall through to item-only fallback instead of failing.
         }
 
-        // 3) Item-only fallback with smart partial/prefix/fuzzy matching.
+        // 3) Final fallback: search items using smart partial/prefix/fuzzy matching.
         if (effectiveSearchText != null && !effectiveSearchText.isBlank()) {
             int limit = 20;
             int candidateLimit = getSmartCandidateLimit(limit);
@@ -448,16 +454,41 @@ public class SearchService {
         return value == null ? "" : value.trim().toLowerCase().replaceAll("\\s+", " ");
     }
 
+    /**
+     * Expands the requested limit into a larger candidate pool for fallback scoring.
+     *
+     * Why:
+     * - exact DB filtering is intentionally broad
+     * - we need a slightly larger candidate set before final ranking
+     * - still bounded to avoid unbounded scans
+     */
     private int getSmartCandidateLimit(Integer requestedLimit) {
         return Math.min(Math.max(getSafeLimit(requestedLimit) * 5, 40), SMART_CANDIDATE_LIMIT_CAP);
     }
 
+    /**
+     * Comparator used when query text is missing and we need a sensible default order.
+     *
+     * Current ordering:
+     * - higher rating first
+     * - then higher rating count
+     */
     private Comparator<Item> itemSearchComparator() {
         return Comparator
                 .comparing(Item::getAvgItemRating, Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(Item::getRatingCount, Comparator.nullsLast(Comparator.reverseOrder()));
     }
 
+    /**
+     * Derives the meaningful item-search text from the original raw query.
+     *
+     * Logic:
+     * - prefer parser-resolved canonical item if available
+     * - otherwise remove near-me phrases
+     * - remove parsed city/area words
+     * - remove common noise words
+     * - return remaining meaningful search text
+     */
     private String deriveEffectiveSearchText(String rawQuery, QueryParseResult parsed) {
         if (parsed.getCanonicalItem() != null && !parsed.getCanonicalItem().isBlank()) {
             return parsed.getCanonicalItem();
@@ -485,6 +516,16 @@ public class SearchService {
         return String.join(" ", tokens);
     }
 
+    /**
+     * Extracts useful tokens from free-form user text.
+     *
+     * Removes:
+     * - blank values
+     * - generic search noise words
+     * - very short tokens with poor search value
+     *
+     * Result is used for regex pre-filtering and fuzzy comparison.
+     */
     private List<String> extractMeaningfulTokens(String text) {
         if (text == null || text.isBlank()) {
             return List.of();
@@ -499,6 +540,16 @@ public class SearchService {
                 .toList();
     }
 
+    /**
+     * Builds a Mongo OR criteria that matches any meaningful token inside normalized item name.
+     *
+     * Example:
+     * - query: "good dabeli cheese"
+     * - useful tokens: ["dabeli", "cheese"]
+     * - generated behavior: item name containing either token
+     *
+     * This is only a candidate pre-filter, not the final ranking logic.
+     */
     private Criteria buildAnyTokenRegexCriteria(List<String> tokens) {
         if (tokens == null || tokens.isEmpty()) {
             return null;
@@ -512,6 +563,19 @@ public class SearchService {
         return new Criteria().orOperator(tokenCriterias.toArray(new Criteria[0]));
     }
 
+    /**
+     * Applies smart matching on candidate items and returns the best results.
+     *
+     * Matching stages:
+     * - exact text match
+     * - prefix match
+     * - substring match
+     * - all-token contained match
+     * - token prefix match
+     * - fuzzy similarity fallback
+     *
+     * Only items above the fallback threshold are returned.
+     */
     private List<Item> applySmartItemMatching(List<Item> items, String searchText, int limit) {
         if (items == null || items.isEmpty()) {
             return List.of();
@@ -542,6 +606,17 @@ public class SearchService {
                 .toList();
     }
 
+    /**
+     * Computes how well one item matches the requested search text.
+     *
+     * Scoring priority:
+     * - exact item name match -> strongest
+     * - prefix match -> very strong
+     * - substring match -> strong
+     * - all tokens contained -> strong
+     * - any word prefix match -> medium
+     * - fuzzy similarity -> fallback
+     */
     private double computeMatchScore(Item item, String normalizedSearchText, List<String> tokens) {
         String itemName = normalizeText(
                 item.getNormalizedItemName() != null ? item.getNormalizedItemName() : item.getItemName()
@@ -588,6 +663,13 @@ public class SearchService {
         return 0.0;
     }
 
+    /**
+     * Finds the best fuzzy similarity between one token and the full item name / item words.
+     *
+     * This helps cases like:
+     * - dabel -> dabeli
+     * - sandwitch -> cheese sandwitch
+     */
     private double bestTokenSimilarity(String token, String normalizedItemName) {
         double best = similarity(token, normalizedItemName);
 
@@ -598,6 +680,13 @@ public class SearchService {
         return best;
     }
 
+    /**
+     * Computes normalized similarity from Levenshtein distance.
+     *
+     * Output range:
+     * - 1.0 = exact
+     * - closer to 0.0 = poor match
+     */
     private double similarity(String a, String b) {
         if (a == null || b == null || a.isBlank() || b.isBlank()) {
             return 0.0;
@@ -612,6 +701,11 @@ public class SearchService {
         return 1.0 - ((double) distance / maxLength);
     }
 
+    /**
+     * Standard Levenshtein distance implementation.
+     *
+     * Used only for fallback fuzzy matching after exact/prefix/substring/token checks.
+     */
     private int levenshteinDistance(String a, String b) {
         int[][] dp = new int[a.length() + 1][b.length() + 1];
 

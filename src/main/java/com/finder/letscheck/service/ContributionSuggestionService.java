@@ -172,7 +172,8 @@ public class ContributionSuggestionService {
 
         userRepository.save(user);
 
-        // Refresh search caches so new city/area/item data becomes searchable immediately.
+        // Refresh parser/search caches after merge approval so searchable metadata
+        // stays in sync for smart search and autocomplete behavior.
         searchCacheService.refreshCaches();
 
         return mapToResponse(suggestion);
@@ -233,7 +234,8 @@ public class ContributionSuggestionService {
         );
         userRepository.save(user);
 
-        // Refresh search caches so merged suggestion location / area updates become visible.
+        // Refresh parser/search caches after item creation so newly approved
+        // city/area/item data becomes immediately available for smart search and suggestions.
         searchCacheService.refreshCaches();
 
         return mapToResponse(suggestion);

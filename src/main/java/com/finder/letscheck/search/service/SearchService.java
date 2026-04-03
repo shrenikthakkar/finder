@@ -22,6 +22,9 @@ import com.finder.letscheck.model.UserBucketList;
 import com.finder.letscheck.repository.UserBucketListRepository;
 import com.finder.letscheck.dto.SearchAnalyticsRequest;
 import com.finder.letscheck.model.enums.SearchSource;
+import java.util.*;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 
 import java.util.Comparator;
@@ -36,6 +39,28 @@ public class SearchService {
     private final ItemRepository itemRepository;
     private final UserBucketListRepository userBucketListRepository;
     private final SearchAnalyticsService searchAnalyticsService;
+
+    private static final double SEARCH_FALLBACK_THRESHOLD = 0.50;
+    private static final int SMART_CANDIDATE_LIMIT_CAP = 100;
+
+    private static final Set<String> SEARCH_NOISE_WORDS = Set.of(
+            "best", "top", "famous", "popular", "must", "try",
+            "near", "me", "nearby", "around", "in", "at",
+            "find", "show", "food", "item", "items",
+            "good", "great", "nice", "please"
+    );
+
+    private static final List<String> NEAR_ME_PHRASES = List.of(
+            "near me",
+            "near by me",
+            "nearby me",
+            "nearby",
+            "around me",
+            "around",
+            "close to me",
+            "close by me",
+            "near my location"
+    );
 
     /**
      * Searches nearby active items using MongoDB geo filtering.
@@ -104,31 +129,31 @@ public class SearchService {
         }
 
         int limit = getSafeLimit(request.getLimit());
+        int candidateLimit = getSmartCandidateLimit(limit);
 
-        String normalizedQuery = normalizeText(request.getQuery());
-
+        Query query = new Query();
         Point userLocation = new Point(request.getLongitude(), request.getLatitude());
         Distance radius = new Distance(request.getRadiusInKm(), Metrics.KILOMETERS);
 
-        Query query = new Query();
-
-        // Geo filter for nearby results
         query.addCriteria(
-                Criteria.where("location").nearSphere(userLocation).maxDistance(radius.getNormalizedValue())
+                Criteria.where("location")
+                        .nearSphere(userLocation)
+                        .maxDistance(radius.getNormalizedValue())
         );
-
-        // Exact normalized item filter
-        query.addCriteria(Criteria.where("normalizedItemName").is(normalizedQuery));
-
-        // Only active items should be returned
         query.addCriteria(Criteria.where("isActive").is(true));
 
-        // Restrict result set size
-        query.limit(limit);
+        List<String> tokens = extractMeaningfulTokens(request.getQuery());
+        Criteria tokenCriteria = buildAnyTokenRegexCriteria(tokens);
+        if (tokenCriteria != null) {
+            query.addCriteria(tokenCriteria);
+        }
+
+        query.limit(candidateLimit);
 
         List<Item> items = mongoTemplate.find(query, Item.class);
+        List<Item> matchedItems = applySmartItemMatching(items, request.getQuery(), limit);
 
-        List<ItemSearchResponse> results = items.stream()
+        List<ItemSearchResponse> results = matchedItems.stream()
                 .map(item -> mapToSearchResponse(item, request.getLatitude(), request.getLongitude()))
                 .sorted(defaultSearchComparator())
                 .toList();
@@ -168,46 +193,46 @@ public class SearchService {
      * - Applies result limits for performance stability
      */
     public List<ItemSearchResponse> searchItemsByArea(ItemSearchRequest request) {
-
-        // At least one location filter must be present
         if ((request.getCity() == null || request.getCity().isBlank())
                 && (request.getArea() == null || request.getArea().isBlank())) {
             throw new RuntimeException("Either city or area is required for area search");
         }
 
         int limit = getSafeLimit(request.getLimit());
+        int candidateLimit = getSmartCandidateLimit(limit);
 
-        // Normalize request fields for exact matching with normalized DB fields
         String normalizedCity = request.getCity() != null ? normalizeText(request.getCity()) : null;
         String normalizedArea = request.getArea() != null ? normalizeText(request.getArea()) : null;
-        String normalizedQuery = request.getQuery() != null ? normalizeText(request.getQuery()) : null;
 
         Query mongoQuery = new Query();
-
-        // Only active items should be returned
         mongoQuery.addCriteria(Criteria.where("isActive").is(true));
 
-        // Add city filter if available
         if (normalizedCity != null) {
             mongoQuery.addCriteria(Criteria.where("normalizedCity").is(normalizedCity));
         }
 
-        // Add area filter if available
         if (normalizedArea != null) {
             mongoQuery.addCriteria(Criteria.where("normalizedAreaName").is(normalizedArea));
         }
 
-        // Add item filter if available
-        if (normalizedQuery != null) {
-            mongoQuery.addCriteria(Criteria.where("normalizedItemName").is(normalizedQuery));
+        List<String> tokens = extractMeaningfulTokens(request.getQuery());
+        Criteria tokenCriteria = buildAnyTokenRegexCriteria(tokens);
+        if (tokenCriteria != null) {
+            mongoQuery.addCriteria(tokenCriteria);
         }
 
-        // Restrict result count early
-        mongoQuery.limit(limit);
+        mongoQuery.limit(candidateLimit);
 
         List<Item> items = mongoTemplate.find(mongoQuery, Item.class);
 
-        List<ItemSearchResponse> results = items.stream()
+        List<Item> matchedItems = request.getQuery() == null || request.getQuery().isBlank()
+                ? items.stream()
+                .sorted(itemSearchComparator())
+                .limit(limit)
+                .toList()
+                : applySmartItemMatching(items, request.getQuery(), limit);
+
+        List<ItemSearchResponse> results = matchedItems.stream()
                 .map(item -> mapToSearchResponse(item, null, null))
                 .sorted(defaultSearchComparator())
                 .toList();
@@ -311,65 +336,75 @@ public class SearchService {
      * - Chooses best search strategy
      * - Applies safe result limits for stable performance
      */
-    public List<ItemSearchResponse> smartSearch(String rawQuery, Double latitude, Double longitude, Double radiusInKm, String userId) {
+    public List<ItemSearchResponse> smartSearch(
+            String rawQuery,
+            Double latitude,
+            Double longitude,
+            Double radiusInKm,
+            String userId
+    ) {
         QueryParseResult parsed = queryParserService.parse(rawQuery);
 
-        System.out.println("Parsed query => item: " + parsed.getCanonicalItem()
-                + ", city: " + parsed.getCity()
-                + ", area: " + parsed.getArea()
-                + ", nearMe: " + parsed.isNearMeIntent());
+        System.out.println(
+                "Parsed query => item: " + parsed.getCanonicalItem()
+                        + ", city: " + parsed.getCity()
+                        + ", area: " + parsed.getArea()
+                        + ", nearMe: " + parsed.isNearMeIntent()
+        );
 
-        // If area or city is parsed, use area-based search
+        String effectiveSearchText = deriveEffectiveSearchText(rawQuery, parsed);
+
+        // 1) Prefer area/city search when a location is parsed from query.
         if (parsed.getArea() != null || parsed.getCity() != null) {
             ItemSearchRequest request = new ItemSearchRequest();
             request.setCity(parsed.getCity());
             request.setArea(parsed.getArea());
-            request.setQuery(parsed.getCanonicalItem());
+            request.setQuery(effectiveSearchText);
             request.setLimit(20);
             request.setUserId(userId);
             return searchItemsByArea(request);
         }
 
-        /**
-         * If query indicates nearby intent or coordinates are available, prefer nearby search.
-         *
-         * Fallback behavior:
-         * - if nearby intent exists but location is missing, do not call nearby search
-         * - fallback to item-only search instead of failing
-         */
+        // 2) Nearby search when user intent is near-me or coordinates are present.
         if (parsed.isNearMeIntent() || (latitude != null && longitude != null)) {
-
-            // Only call nearby search when coordinates are actually available.
             if (latitude != null && longitude != null) {
                 ItemSearchRequest request = new ItemSearchRequest();
                 request.setLatitude(latitude);
                 request.setLongitude(longitude);
                 request.setRadiusInKm(radiusInKm != null ? radiusInKm : 5.0);
-                request.setQuery(parsed.getCanonicalItem());
+                request.setQuery(effectiveSearchText);
                 request.setLimit(20);
                 request.setUserId(userId);
 
-                if (parsed.getCanonicalItem() != null) {
+                if (effectiveSearchText != null && !effectiveSearchText.isBlank()) {
                     return searchNearbyItemsByQuery(request);
                 }
 
                 return searchNearbyItems(request);
             }
-
-            // Nearby intent exists, but no coordinates were supplied.
-            // Fall through to the item-only fallback below.
+            // no location available -> fall through to item-only fallback
         }
 
-        // Fallback: item-only search without location
-        if (parsed.getCanonicalItem() != null) {
+        // 3) Item-only fallback with smart partial/prefix/fuzzy matching.
+        if (effectiveSearchText != null && !effectiveSearchText.isBlank()) {
+            int limit = 20;
+            int candidateLimit = getSmartCandidateLimit(limit);
+
             Query mongoQuery = new Query();
-            mongoQuery.addCriteria(Criteria.where("normalizedItemName").is(parsed.getCanonicalItem()));
             mongoQuery.addCriteria(Criteria.where("isActive").is(true));
-            mongoQuery.limit(20);
+
+            List<String> tokens = extractMeaningfulTokens(effectiveSearchText);
+            Criteria tokenCriteria = buildAnyTokenRegexCriteria(tokens);
+            if (tokenCriteria != null) {
+                mongoQuery.addCriteria(tokenCriteria);
+            }
+
+            mongoQuery.limit(candidateLimit);
 
             List<Item> items = mongoTemplate.find(mongoQuery, Item.class);
+            List<Item> matchedItems = applySmartItemMatching(items, effectiveSearchText, limit);
 
-            List<ItemSearchResponse> results = items.stream()
+            List<ItemSearchResponse> results = matchedItems.stream()
                     .map(item -> mapToSearchResponse(item, latitude, longitude))
                     .sorted(defaultSearchComparator())
                     .toList();
@@ -411,6 +446,195 @@ public class SearchService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase().replaceAll("\\s+", " ");
+    }
+
+    private int getSmartCandidateLimit(Integer requestedLimit) {
+        return Math.min(Math.max(getSafeLimit(requestedLimit) * 5, 40), SMART_CANDIDATE_LIMIT_CAP);
+    }
+
+    private Comparator<Item> itemSearchComparator() {
+        return Comparator
+                .comparing(Item::getAvgItemRating, Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(Item::getRatingCount, Comparator.nullsLast(Comparator.reverseOrder()));
+    }
+
+    private String deriveEffectiveSearchText(String rawQuery, QueryParseResult parsed) {
+        if (parsed.getCanonicalItem() != null && !parsed.getCanonicalItem().isBlank()) {
+            return parsed.getCanonicalItem();
+        }
+
+        String normalized = normalizeText(rawQuery);
+
+        for (String phrase : NEAR_ME_PHRASES) {
+            normalized = normalized.replace(phrase, " ");
+        }
+
+        if (parsed.getCity() != null && !parsed.getCity().isBlank()) {
+            normalized = normalized.replace(parsed.getCity(), " ");
+        }
+
+        if (parsed.getArea() != null && !parsed.getArea().isBlank()) {
+            normalized = normalized.replace(parsed.getArea(), " ");
+        }
+
+        List<String> tokens = extractMeaningfulTokens(normalized);
+        if (tokens.isEmpty()) {
+            return null;
+        }
+
+        return String.join(" ", tokens);
+    }
+
+    private List<String> extractMeaningfulTokens(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+
+        return Arrays.stream(normalizeText(text).split("\\s+"))
+                .map(String::trim)
+                .filter(token -> !token.isBlank())
+                .filter(token -> !SEARCH_NOISE_WORDS.contains(token))
+                .filter(token -> token.length() >= 2)
+                .distinct()
+                .toList();
+    }
+
+    private Criteria buildAnyTokenRegexCriteria(List<String> tokens) {
+        if (tokens == null || tokens.isEmpty()) {
+            return null;
+        }
+
+        List<Criteria> tokenCriterias = tokens.stream()
+                .map(token -> Criteria.where("normalizedItemName")
+                        .regex(".*" + Pattern.quote(token) + ".*", "i"))
+                .toList();
+
+        return new Criteria().orOperator(tokenCriterias.toArray(new Criteria[0]));
+    }
+
+    private List<Item> applySmartItemMatching(List<Item> items, String searchText, int limit) {
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+
+        String normalizedSearchText = normalizeText(searchText);
+        List<String> tokens = extractMeaningfulTokens(searchText);
+
+        if ((normalizedSearchText == null || normalizedSearchText.isBlank()) && tokens.isEmpty()) {
+            return items.stream()
+                    .sorted(itemSearchComparator())
+                    .limit(limit)
+                    .toList();
+        }
+
+        return items.stream()
+                .map(item -> Map.entry(item, computeMatchScore(item, normalizedSearchText, tokens)))
+                .filter(entry -> entry.getValue() >= SEARCH_FALLBACK_THRESHOLD)
+                .sorted(
+                        Comparator.<Map.Entry<Item, Double>>comparingDouble(Map.Entry::getValue).reversed()
+                                .thenComparing(entry -> entry.getKey().getAvgItemRating(),
+                                        Comparator.nullsLast(Comparator.reverseOrder()))
+                                .thenComparing(entry -> entry.getKey().getRatingCount(),
+                                        Comparator.nullsLast(Comparator.reverseOrder()))
+                )
+                .map(Map.Entry::getKey)
+                .limit(limit)
+                .toList();
+    }
+
+    private double computeMatchScore(Item item, String normalizedSearchText, List<String> tokens) {
+        String itemName = normalizeText(
+                item.getNormalizedItemName() != null ? item.getNormalizedItemName() : item.getItemName()
+        );
+
+        if (itemName == null || itemName.isBlank()) {
+            return 0.0;
+        }
+
+        if (normalizedSearchText != null && !normalizedSearchText.isBlank()) {
+            if (itemName.equals(normalizedSearchText)) {
+                return 1.00;
+            }
+            if (itemName.startsWith(normalizedSearchText)) {
+                return 0.95;
+            }
+            if (itemName.contains(normalizedSearchText)) {
+                return 0.90;
+            }
+        }
+
+        if (!tokens.isEmpty()) {
+            boolean allTokensContained = tokens.stream().allMatch(itemName::contains);
+            if (allTokensContained) {
+                return 0.88;
+            }
+
+            boolean anyWordPrefix = Arrays.stream(itemName.split("\\s+"))
+                    .anyMatch(word -> tokens.stream().anyMatch(word::startsWith));
+            if (anyWordPrefix) {
+                return 0.78;
+            }
+
+            double avgSimilarity = tokens.stream()
+                    .mapToDouble(token -> bestTokenSimilarity(token, itemName))
+                    .average()
+                    .orElse(0.0);
+
+            if (avgSimilarity >= SEARCH_FALLBACK_THRESHOLD) {
+                return avgSimilarity;
+            }
+        }
+
+        return 0.0;
+    }
+
+    private double bestTokenSimilarity(String token, String normalizedItemName) {
+        double best = similarity(token, normalizedItemName);
+
+        for (String word : normalizedItemName.split("\\s+")) {
+            best = Math.max(best, similarity(token, word));
+        }
+
+        return best;
+    }
+
+    private double similarity(String a, String b) {
+        if (a == null || b == null || a.isBlank() || b.isBlank()) {
+            return 0.0;
+        }
+
+        int maxLength = Math.max(a.length(), b.length());
+        if (maxLength == 0) {
+            return 1.0;
+        }
+
+        int distance = levenshteinDistance(a, b);
+        return 1.0 - ((double) distance / maxLength);
+    }
+
+    private int levenshteinDistance(String a, String b) {
+        int[][] dp = new int[a.length() + 1][b.length() + 1];
+
+        for (int i = 0; i <= a.length(); i++) {
+            dp[i][0] = i;
+        }
+
+        for (int j = 0; j <= b.length(); j++) {
+            dp[0][j] = j;
+        }
+
+        for (int i = 1; i <= a.length(); i++) {
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+
+                dp[i][j] = Math.min(
+                        Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
+                        dp[i - 1][j - 1] + cost
+                );
+            }
+        }
+
+        return dp[a.length()][b.length()];
     }
 
     /**

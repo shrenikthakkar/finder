@@ -17,6 +17,7 @@ import com.finder.letscheck.repository.SuggestionRepository;
 import com.finder.letscheck.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import com.finder.letscheck.search.cache.SearchCacheService;
 
 import java.time.Instant;
 import java.util.List;
@@ -30,6 +31,7 @@ public class ContributionSuggestionService {
 
     private final SuggestionRepository suggestionRepository;
     private final RewardTransactionRepository rewardTransactionRepository;
+    private final SearchCacheService searchCacheService;
     private final UserRepository userRepository;
     private final ItemRepository itemRepository;
     private final ItemService itemService;
@@ -170,6 +172,9 @@ public class ContributionSuggestionService {
 
         userRepository.save(user);
 
+        // Refresh search caches so new city/area/item data becomes searchable immediately.
+        searchCacheService.refreshCaches();
+
         return mapToResponse(suggestion);
     }
 
@@ -227,6 +232,9 @@ public class ContributionSuggestionService {
                 Math.max(0, safeInt(user.getPendingContributionCount()) - 1)
         );
         userRepository.save(user);
+
+        // Refresh search caches so merged suggestion location / area updates become visible.
+        searchCacheService.refreshCaches();
 
         return mapToResponse(suggestion);
     }

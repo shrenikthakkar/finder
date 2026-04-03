@@ -11,13 +11,16 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class QueryParserService {
 
-    private static final double ITEM_THRESHOLD = 0.78;
-    private static final double CITY_THRESHOLD = 0.88;
-    private static final double AREA_THRESHOLD = 0.85;
+    private static final double ITEM_THRESHOLD = 0.70;
+    private static final double CITY_THRESHOLD = 0.80;
+    private static final double AREA_THRESHOLD = 0.80;
 
     private static final Set<String> STOP_WORDS = Set.of(
-            "best", "top", "famous", "popular", "must", "try", "near", "me",
-            "nearby", "around", "in", "at", "find", "show", "food", "item", "items"
+            "best", "top", "famous", "popular", "must", "try",
+            "near", "me", "nearby", "around", "in", "at",
+            "find", "show", "food", "item", "items", "dish", "dishes",
+            "good", "great", "awesome", "amazing", "nice", "tasty", "yummy",
+            "please", "want", "need", "for"
     );
 
     private final SearchCacheService searchCacheService;
@@ -30,8 +33,20 @@ public class QueryParserService {
 
         String canonicalItem = resolveCanonicalItemFromSentence(normalizedQuery);
 
-        boolean nearMeIntent = containsAny(normalizedQuery, "near me",
-                "nearby", "around me", "near by me", "nearby me", "close to me", "close by me", "near my location");
+        boolean nearMeIntent = containsAny(
+                normalizedQuery,
+                "near me",
+                "nearby",
+                "around me",
+                "around",
+                "near by me",
+                "nearby me",
+                "close to me",
+                "close by me",
+                "close by",
+                "near my location"
+        );
+
         boolean areaIntent = area != null || city != null || normalizedQuery.contains(" in ");
 
         return QueryParseResult.builder()

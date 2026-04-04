@@ -13,7 +13,22 @@ import java.util.List;
  * NOTE:
  * - Contains profile + summary fields only
  * - No heavy lists (like bookmarks) stored here
+ *
  */
+
+/**
+ * Application user.
+ *
+ * Auth-related fields added:
+ * - email
+ * - phone
+ * - passwordHash
+ * - role
+ *
+ * Business/profile fields can continue to stay in this same document for now.
+ */
+
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -48,8 +63,6 @@ public class User {
 
     private Integer citiesVisitedCount;
 
-    private String role;
-
     private Boolean isActive;
 
     private Boolean isProfilePublic;
@@ -77,5 +90,17 @@ public class User {
      * Total rejected contribution count.
      */
     private Integer rejectedContributionCount;
+
+    /**
+     * Hashed password using BCrypt.
+     * Never store plain password.
+     */
+    private String passwordHash;
+
+    /**
+     * Role used for authorization.
+     * Example values: USER, ADMIN
+     */
+    private String role;
 
 }

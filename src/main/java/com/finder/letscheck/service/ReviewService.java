@@ -23,7 +23,6 @@ public class ReviewService {
     private final RestaurantRepository restaurantRepository;
 
     public ReviewResponse addItemReview(ReviewRequest request) {
-
         Item item = itemRepository.findById(request.getItemId())
                 .orElseThrow(() -> new RuntimeException("Item not found with id: " + request.getItemId()));
 
@@ -53,11 +52,16 @@ public class ReviewService {
                 .updatedAt(now)
                 .build();
 
+        System.out.println("STEP 1: saving review");
         Review savedReview = reviewRepository.save(review);
 
+        System.out.println("STEP 2: updating item aggregates");
         updateItemAggregates(item, request.getRating());
+
+        System.out.println("STEP 3: updating restaurant aggregates");
         updateRestaurantAggregates(item.getRestaurantId(), request.getRating());
 
+        System.out.println("STEP 4: returning response");
         return mapToResponse(savedReview);
     }
 

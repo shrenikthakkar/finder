@@ -2,6 +2,7 @@ package com.finder.letscheck.security;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.*;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -40,9 +41,18 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/auth/**",
                                 "/search/**",
-                                "/actuator/health",
-                                "/items/**"
+                                "/items/**",
+                                "/actuator/health"
                         ).permitAll()
+
+                        // Public: anyone can view item reviews
+                        .requestMatchers(HttpMethod.GET, "/reviews/item/**").permitAll()
+
+                        // Protected: only logged-in users can write/update/delete reviews
+                        .requestMatchers(HttpMethod.POST, "/reviews/item").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/reviews/**").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/reviews/**").authenticated()
+
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

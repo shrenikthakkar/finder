@@ -9,10 +9,16 @@ import lombok.Data;
 @Data
 public class ReviewRequest {
 
-    @NotBlank(message = "User id is required")
+    /**
+     * Filled by backend from authenticated JWT user.
+     * Frontend should not send this.
+     */
     private String userId;
 
-    @NotBlank(message = "User name is required")
+    /**
+     * Filled by backend from authenticated JWT user.
+     * Frontend should not send this.
+     */
     private String userName;
 
     @NotBlank(message = "Item id is required")

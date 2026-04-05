@@ -758,7 +758,7 @@ public class SearchService {
 
         // Fetch all matching bookmarked items in one DB query
         List<UserBucketList> bookmarkedEntries =
-                userBucketListRepository.findByUserIdAndItemIdInAndIsActiveTrue(userId, itemIds);
+                userBucketListRepository.findByUserIdAndItemIdIn(userId, itemIds);
 
         // Convert bookmarked item IDs into a set for O(1) lookup
         java.util.Set<String> bookmarkedItemIds = bookmarkedEntries.stream()

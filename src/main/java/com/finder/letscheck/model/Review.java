@@ -1,10 +1,8 @@
 package com.finder.letscheck.model;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 @Data
@@ -12,6 +10,11 @@ import org.springframework.data.mongodb.core.mapping.Document;
 @AllArgsConstructor
 @Builder
 @Document(collection = "reviews")
+@CompoundIndex(
+        name = "uniq_user_target_review",
+        def = "{'userId': 1, 'targetType': 1, 'targetId': 1}",
+        unique = true
+)
 public class Review {
 
     @Id
@@ -20,7 +23,7 @@ public class Review {
     private String userId;
     private String userName;
 
-    private String targetType;   // ITEM or RESTAURANT
+    private String targetType;
     private String targetId;
     private String targetName;
 
@@ -30,7 +33,7 @@ public class Review {
     private Integer rating;
     private String comment;
 
-    private String status;       // ACTIVE / INACTIVE
+    private String status;
     private Boolean isEdited;
 
     private String createdAt;

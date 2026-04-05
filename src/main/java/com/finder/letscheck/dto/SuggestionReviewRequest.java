@@ -27,4 +27,6 @@ public class SuggestionReviewRequest {
      * Required only for approve-as-merged flow.
      */
     private String linkedItemId;
+
+    private String rejectionReason;
 }

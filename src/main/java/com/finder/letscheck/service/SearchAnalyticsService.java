@@ -59,10 +59,10 @@ public class SearchAnalyticsService {
                 .areaName(request.getAreaName())
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
-                .source(request.getSource())
+                .source(request.getSource() != null ? request.getSource().name() : null)
                 .resultCount(safeInt(request.getResultCount()))
                 .zeroResult(safeInt(request.getResultCount()) == 0)
-                .searchedAt(Instant.now().toString())
+                .searchedAt(Instant.now())
                 .build();
 
         searchEventRepository.save(event);
@@ -79,10 +79,9 @@ public class SearchAnalyticsService {
      */
     private void updateDailyAggregate(SearchAnalyticsRequest request) {
         String date = LocalDate.now().toString();
-        String normalizedQuery = normalize(request.getNormalizedQuery() != null
-                ? request.getNormalizedQuery()
-                : request.getQuery());
-
+        String normalizedQuery = normalize(
+                request.getNormalizedQuery() != null ? request.getNormalizedQuery() : request.getQuery()
+        );
         String city = normalizeNullable(request.getCity());
         String areaName = normalizeNullable(request.getAreaName());
 
@@ -94,16 +93,18 @@ public class SearchAnalyticsService {
                         areaName
                 );
 
-        DailySearchStat stat = existingOptional.orElseGet(() -> DailySearchStat.builder()
-                .date(date)
-                .query(request.getQuery())
-                .normalizedQuery(normalizedQuery)
-                .city(city)
-                .areaName(areaName)
-                .searchCount(0)
-                .zeroResultCount(0)
-                .lastSearchedAt(null)
-                .build());
+        DailySearchStat stat = existingOptional.orElseGet(() ->
+                DailySearchStat.builder()
+                        .date(date)
+                        .query(request.getQuery())
+                        .normalizedQuery(normalizedQuery)
+                        .city(city)
+                        .areaName(areaName)
+                        .searchCount(0)
+                        .zeroResultCount(0)
+                        .lastSearchedAt(null)
+                        .build()
+        );
 
         stat.setSearchCount(safeInt(stat.getSearchCount()) + 1);
 
@@ -112,7 +113,6 @@ public class SearchAnalyticsService {
         }
 
         stat.setLastSearchedAt(Instant.now().toString());
-
         dailySearchStatRepository.save(stat);
     }
 

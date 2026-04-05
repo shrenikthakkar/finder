@@ -251,6 +251,9 @@ public class ContributionSuggestionService {
         suggestion.setStatus(SuggestionStatus.REJECTED);
         suggestion.setRewardPointsGranted(0);
         suggestion.setReviewReason(request.getReviewReason());
+        suggestion.setRejectionReason(
+                request.getRejectionReason() != null ? request.getRejectionReason().trim() : null
+        );
         suggestion.setReviewedBy(request.getReviewedBy());
         suggestion.setReviewedAt(Instant.now().toString());
         suggestion.setUpdatedAt(Instant.now().toString());
@@ -325,6 +328,7 @@ public class ContributionSuggestionService {
                 .reviewedAt(suggestion.getReviewedAt())
                 .latitude(suggestion.getLatitude())
                 .longitude(suggestion.getLongitude())
+                .rejectionReason(suggestion.getRejectionReason())
                 .build();
     }
 

@@ -95,4 +95,9 @@ public class Suggestion {
 
     private Double latitude;
     private Double longitude;
+
+    /**
+     * Optional rejection reason used only when admin rejects suggestion.
+     */
+    private String rejectionReason;
 }

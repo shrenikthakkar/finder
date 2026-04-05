@@ -9,6 +9,8 @@ import com.finder.letscheck.repository.ItemRepository;
 import com.finder.letscheck.repository.RestaurantRepository;
 import com.finder.letscheck.repository.ReviewRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -16,7 +18,11 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReviewService {
+
+    private static final int MAX_COMMENT_LENGTH = 300;
+    private static final int MAX_COMMENT_WORDS = 20;
 
     private final ReviewRepository reviewRepository;
     private final ItemRepository itemRepository;
@@ -31,7 +37,7 @@ public class ReviewService {
                 "ITEM",
                 item.getId()
         ).ifPresent(existing -> {
-            throw new RuntimeException("User has already reviewed this item");
+            throw new RuntimeException("You have already reviewed this item");
         });
 
         String now = Instant.now().toString();
@@ -52,17 +58,28 @@ public class ReviewService {
                 .updatedAt(now)
                 .build();
 
-        System.out.println("STEP 1: saving review");
-        Review savedReview = reviewRepository.save(review);
+        try {
+            Review savedReview = reviewRepository.save(review);
 
-        System.out.println("STEP 2: updating item aggregates");
-        updateItemAggregates(item, request.getRating());
+            // Best-effort aggregate updates: do not fail the user action if
+            // inconsistent legacy data exists (for example missing restaurant).
+            try {
+                updateItemAggregates(item, request.getRating());
+            } catch (Exception e) {
+                log.error("Failed to update item aggregates for itemId={}", item.getId(), e);
+            }
 
-        System.out.println("STEP 3: updating restaurant aggregates");
-        updateRestaurantAggregates(item.getRestaurantId(), request.getRating());
+            try {
+                updateRestaurantAggregates(item.getRestaurantId(), request.getRating());
+            } catch (Exception e) {
+                log.error("Failed to update restaurant aggregates for restaurantId={}", item.getRestaurantId(), e);
+            }
 
-        System.out.println("STEP 4: returning response");
-        return mapToResponse(savedReview);
+            return mapToResponse(savedReview);
+        } catch (DuplicateKeyException e) {
+            log.warn("Duplicate review blocked for userId={} targetId={}", request.getUserId(), item.getId(), e);
+            throw new RuntimeException("You have already reviewed this item");
+        }
     }
 
     public List<ReviewResponse> getReviewsByItem(String itemId) {
@@ -95,8 +112,16 @@ public class ReviewService {
     }
 
     private void updateRestaurantAggregates(String restaurantId, Integer rating) {
-        Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found with id: " + restaurantId));
+        if (restaurantId == null || restaurantId.isBlank()) {
+            log.warn("Skipping restaurant aggregate update because restaurantId is blank");
+            return;
+        }
+
+        Restaurant restaurant = restaurantRepository.findById(restaurantId).orElse(null);
+        if (restaurant == null) {
+            log.warn("Skipping restaurant aggregate update because restaurant was not found. restaurantId={}", restaurantId);
+            return;
+        }
 
         int currentCount = restaurant.getRatingCount() == null ? 0 : restaurant.getRatingCount();
         int currentSum = restaurant.getRatingSum() == null ? 0 : restaurant.getRatingSum();
@@ -110,30 +135,6 @@ public class ReviewService {
         restaurant.setAvgRestaurantRating(newAverage);
 
         restaurantRepository.save(restaurant);
-    }
-
-    /**
-     * Validates and normalizes review comment text.
-     *
-     * Rules for launch:
-     * - comment is optional
-     * - trim extra spaces
-     * - allow short, meaningful reviews only
-     * - reject overly lengthy text to keep launch-stage data compact
-     */
-    private String normalizeAndValidateComment(String comment) {
-        if (comment == null || comment.isBlank()) {
-            return null;
-        }
-
-        String normalized = comment.trim().replaceAll("\\s+", " ");
-
-        int wordCount = normalized.split(" ").length;
-        if (wordCount > 20) {
-            throw new RuntimeException("Review comment can have at most 20 words");
-        }
-
-        return normalized;
     }
 
     private ReviewResponse mapToResponse(Review review) {
@@ -156,7 +157,6 @@ public class ReviewService {
     }
 
     public ReviewResponse updateReview(String reviewId, Integer newRating, String newComment) {
-
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new RuntimeException("Review not found"));
 
@@ -166,23 +166,29 @@ public class ReviewService {
 
         int oldRating = review.getRating();
 
-        // update review
         review.setRating(newRating);
         review.setComment(normalizeAndValidateComment(newComment));
         review.setIsEdited(true);
-        review.setUpdatedAt(java.time.Instant.now().toString());
+        review.setUpdatedAt(Instant.now().toString());
 
         Review savedReview = reviewRepository.save(review);
 
-        // adjust aggregates
-        updateItemAggregateOnUpdate(review.getTargetId(), oldRating, newRating);
-        updateRestaurantAggregateOnUpdate(review.getRestaurantId(), oldRating, newRating);
+        try {
+            updateItemAggregateOnUpdate(review.getTargetId(), oldRating, newRating);
+        } catch (Exception e) {
+            log.error("Failed to update item aggregate on review update. itemId={}", review.getTargetId(), e);
+        }
+
+        try {
+            updateRestaurantAggregateOnUpdate(review.getRestaurantId(), oldRating, newRating);
+        } catch (Exception e) {
+            log.error("Failed to update restaurant aggregate on review update. restaurantId={}", review.getRestaurantId(), e);
+        }
 
         return mapToResponse(savedReview);
     }
 
     public void deleteReview(String reviewId) {
-
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new RuntimeException("Review not found"));
 
@@ -191,14 +197,22 @@ public class ReviewService {
         }
 
         review.setStatus("INACTIVE");
-        review.setUpdatedAt(java.time.Instant.now().toString());
-
+        review.setUpdatedAt(Instant.now().toString());
         reviewRepository.save(review);
 
         int rating = review.getRating();
 
-        updateItemAggregateOnDelete(review.getTargetId(), rating);
-        updateRestaurantAggregateOnDelete(review.getRestaurantId(), rating);
+        try {
+            updateItemAggregateOnDelete(review.getTargetId(), rating);
+        } catch (Exception e) {
+            log.error("Failed to update item aggregate on review delete. itemId={}", review.getTargetId(), e);
+        }
+
+        try {
+            updateRestaurantAggregateOnDelete(review.getRestaurantId(), rating);
+        } catch (Exception e) {
+            log.error("Failed to update restaurant aggregate on review delete. restaurantId={}", review.getRestaurantId(), e);
+        }
     }
 
     private void updateItemAggregateOnDelete(String itemId, int rating) {
@@ -216,8 +230,15 @@ public class ReviewService {
     }
 
     private void updateRestaurantAggregateOnDelete(String restaurantId, int rating) {
-        Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+        if (restaurantId == null || restaurantId.isBlank()) {
+            return;
+        }
+
+        Restaurant restaurant = restaurantRepository.findById(restaurantId).orElse(null);
+        if (restaurant == null) {
+            log.warn("Skipping restaurant aggregate delete update because restaurant was not found. restaurantId={}", restaurantId);
+            return;
+        }
 
         int sum = restaurant.getRatingSum() - rating;
         int count = restaurant.getRatingCount() - 1;
@@ -237,21 +258,50 @@ public class ReviewService {
         int count = item.getRatingCount();
 
         item.setRatingSum(sum);
-        item.setAvgItemRating((double) sum / count);
+        item.setAvgItemRating(count == 0 ? 0 : (double) sum / count);
 
         itemRepository.save(item);
     }
 
     private void updateRestaurantAggregateOnUpdate(String restaurantId, int oldRating, int newRating) {
-        Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+        if (restaurantId == null || restaurantId.isBlank()) {
+            return;
+        }
+
+        Restaurant restaurant = restaurantRepository.findById(restaurantId).orElse(null);
+        if (restaurant == null) {
+            log.warn("Skipping restaurant aggregate update because restaurant was not found. restaurantId={}", restaurantId);
+            return;
+        }
 
         int sum = restaurant.getRatingSum() - oldRating + newRating;
         int count = restaurant.getRatingCount();
 
         restaurant.setRatingSum(sum);
-        restaurant.setAvgRestaurantRating((double) sum / count);
+        restaurant.setAvgRestaurantRating(count == 0 ? 0 : (double) sum / count);
 
         restaurantRepository.save(restaurant);
+    }
+
+    private String normalizeAndValidateComment(String comment) {
+        if (comment == null) {
+            return null;
+        }
+
+        String normalized = comment.trim().replaceAll("\\s+", " ");
+        if (normalized.isEmpty()) {
+            return null;
+        }
+
+        if (normalized.length() > MAX_COMMENT_LENGTH) {
+            throw new RuntimeException("Review comment is too long");
+        }
+
+        int wordCount = normalized.split("\\s+").length;
+        if (wordCount > MAX_COMMENT_WORDS) {
+            throw new RuntimeException("Review comment can have at most 20 words");
+        }
+
+        return normalized;
     }
 }

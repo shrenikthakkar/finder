@@ -31,9 +31,9 @@ public class ReviewController {
         return reviewService.getReviewsByItem(itemId);
     }
 
-    @GetMapping("/user/{userId}")
-    public List<ReviewResponse> getReviewsByUser(@PathVariable String userId) {
-        return reviewService.getReviewsByUser(userId);
+    @GetMapping("/me")
+    public List<ReviewResponse> getMyReviews() {
+        return reviewService.getReviewsByUser(currentUserService.getCurrentUserId());
     }
 
     @PutMapping("/{reviewId}")

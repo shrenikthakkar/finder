@@ -1,24 +1,12 @@
 package com.finder.letscheck.model;
 
-import com.finder.letscheck.model.enums.SearchSource;
 import lombok.*;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
-/**
- * Raw analytics event for a single search execution.
- *
- * Purpose:
- * - debugging
- * - recent behavior analysis
- * - zero-result analysis
- * - future ranking/ML improvements
- *
- * Note:
- * - keep this document lean
- * - use TTL later if needed for auto-expiry
- */
+import java.time.Instant;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -29,40 +17,23 @@ public class SearchEvent {
     @Id
     private String id;
 
-    /**
-     * Original and normalized query.
-     */
     private String query;
     private String normalizedQuery;
-
-    /**
-     * Optional user context.
-     */
     private String userId;
 
-    /**
-     * Optional location context from parsed request.
-     */
     private String city;
     private String areaName;
 
     private Double latitude;
     private Double longitude;
 
-    /**
-     * Search source/type.
-     */
-    private SearchSource source;
-
-    /**
-     * Result summary.
-     */
     private Integer resultCount;
     private Boolean zeroResult;
+    private String source;
 
     /**
-     * Audit timestamp.
+     * TTL: raw events auto-delete after 15 days.
      */
-    @Indexed
-    private String searchedAt;
+    @Indexed(expireAfterSeconds = 15 * 24 * 60 * 60)
+    private Instant searchedAt;
 }

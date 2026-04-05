@@ -45,4 +45,6 @@ public class SuggestionResponse {
     // Optional coordinates provided with the suggestion
     private Double latitude;
     private Double longitude;
+
+    private String rejectionReason;
 }

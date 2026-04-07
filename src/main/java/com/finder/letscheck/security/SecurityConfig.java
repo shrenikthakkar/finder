@@ -44,7 +44,7 @@ public class SecurityConfig {
                                 "/auth/**",
                                 "/search/**",
                                 "/items/**",
-                                "/actuator/health"
+                                "/health"
                         ).permitAll()
 
                         // Public: anyone can view item reviews

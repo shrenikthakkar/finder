@@ -37,7 +37,7 @@ public class SearchAnalyticsService {
      * 1. save raw search event
      * 2. upsert daily aggregate bucket
      */
-    @Async
+    @Async("appTaskExecutor")
     public void logSearchAsync(SearchAnalyticsRequest request) {
         try {
             saveRawEvent(request);

@@ -20,4 +20,5 @@ public class UserResponse {
 
     private List<String> citiesVisited;
     private Integer citiesVisitedCount;
+    private String publicUsername;
 }

@@ -47,6 +47,7 @@ public class AuthService {
         user.setEmail(normalizeEmail(request.getEmail()));
         user.setPhoneNumber(normalizePhoneNumber(request.getPhoneNumber()));
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setPublicUsername(resolvePublicUsername(request.getPublicUsername(), request.getName()));
         user.setRole("USER");
 
         // Default profile fields
@@ -84,7 +85,32 @@ public class AuthService {
                 .email(savedUser.getEmail())
                 .phoneNumber(savedUser.getPhoneNumber())
                 .role(savedUser.getRole())
+                .publicUsername(savedUser.getPublicUsername())
                 .build();
+    }
+
+    private String resolvePublicUsername(String publicUsername, String name) {
+        String base = (publicUsername != null && !publicUsername.isBlank())
+                ? publicUsername
+                : name;
+
+        if (base == null || base.isBlank()) {
+            return "spotzy_user";
+        }
+
+        String normalized = base.trim().toLowerCase()
+                .replaceAll("[^a-z0-9._]", "_")
+                .replaceAll("_+", "_");
+
+        if (normalized.length() < 3) {
+            normalized = normalized + "_user";
+        }
+
+        if (normalized.length() > 20) {
+            normalized = normalized.substring(0, 20);
+        }
+
+        return normalized;
     }
 
     /**
@@ -124,6 +150,7 @@ public class AuthService {
                 .email(user.getEmail())
                 .phoneNumber(user.getPhoneNumber())
                 .role(user.getRole())
+                .publicUsername(user.getPublicUsername())
                 .build();
     }
 

@@ -103,4 +103,10 @@ public class User {
      */
     private String role;
 
+    /**
+     * Public display name shown in reviews and other public surfaces.
+     * This should not expose the user's real name/email unless they choose so.
+     */
+    private String publicUsername;
+
 }

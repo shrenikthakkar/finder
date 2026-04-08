@@ -22,7 +22,7 @@ public class ReviewController {
     public ReviewResponse addItemReview(@Valid @RequestBody ReviewRequest request) {
         var currentUser = currentUserService.getCurrentUser();
         request.setUserId(currentUser.getId());
-        request.setUserName(currentUser.getName());
+        request.setUserName(resolvePublicUsername(currentUser));
         return reviewService.addItemReview(request);
     }
 
@@ -49,5 +49,17 @@ public class ReviewController {
     public String deleteReview(@PathVariable String reviewId) {
         reviewService.deleteReview(reviewId);
         return "Review deleted successfully";
+    }
+
+    private String resolvePublicUsername(com.finder.letscheck.model.User user) {
+        if (user.getPublicUsername() != null && !user.getPublicUsername().isBlank()) {
+            return user.getPublicUsername().trim();
+        }
+
+        if (user.getName() != null && !user.getName().isBlank()) {
+            return user.getName().trim().toLowerCase().replaceAll("[^a-z0-9._]", "_");
+        }
+
+        return "spotzy_user";
     }
 }

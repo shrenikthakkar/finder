@@ -68,6 +68,7 @@ public class UserService {
                 .totalReviewsGiven(user.getTotalReviewsGiven())
                 .citiesVisited(user.getCitiesVisited())
                 .citiesVisitedCount(user.getCitiesVisitedCount())
+                .publicUsername(user.getPublicUsername())
                 .build();
     }
 

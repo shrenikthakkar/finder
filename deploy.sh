@@ -22,7 +22,7 @@ fi
 
 # Step 4: Start the application
 echo "🚀 Starting the application..."
-nohup java -jar target/spendtrack-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod > output.log 2>&1 &
+nohup java -jar target/letscheck-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod > output.log 2>&1 &
 
 # Step 5: Monitor logs continuously
 echo "📜 Tailing logs..."

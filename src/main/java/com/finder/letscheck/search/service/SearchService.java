@@ -25,6 +25,7 @@ import com.finder.letscheck.model.enums.SearchSource;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.springframework.data.mongodb.core.geo.GeoJsonPoint;
 
 
 import java.util.Comparator;
@@ -42,6 +43,7 @@ public class SearchService {
 
     private static final double SEARCH_FALLBACK_THRESHOLD = 0.50;
     private static final int SMART_CANDIDATE_LIMIT_CAP = 100;
+    private static final double METERS_PER_KM = 1000.0;
 
     private static final Set<String> SEARCH_NOISE_WORDS = Set.of(
             "best", "top", "famous", "popular", "must", "try",
@@ -66,22 +68,31 @@ public class SearchService {
      * Searches nearby active items using MongoDB geo filtering.
      *
      * Improvement:
-     * - uses geo index for fast nearby search
-     * - applies result limit for better scalability
+     * - uses GeoJSON point because Item.location is stored as GeoJSON
+     * - uses radius in meters for Mongo geo filtering
+     * - keeps response distance in KM for UI
      */
     public List<ItemSearchResponse> searchNearbyItems(ItemSearchRequest request) {
         validateNearbySearchRequest(request);
 
         int limit = getSafeLimit(request.getLimit());
 
-        Point userLocation = new Point(request.getLongitude(), request.getLatitude());
-        Distance radius = new Distance(request.getRadiusInKm(), Metrics.KILOMETERS);
+        GeoJsonPoint userLocation = new GeoJsonPoint(
+                request.getLongitude(),
+                request.getLatitude()
+        );
+
+        double radiusInMeters = request.getRadiusInKm() * METERS_PER_KM;
 
         Query query = new Query();
 
-        // Geo filter for nearby results
+        // Geo filter for nearby results.
+        // Item.location is stored as GeoJSON { type: "Point", coordinates: [lng, lat] }
+        // so Mongo expects a GeoJSON point here and maxDistance in meters.
         query.addCriteria(
-                Criteria.where("location").nearSphere(userLocation).maxDistance(radius.getNormalizedValue())
+                Criteria.where("location")
+                        .nearSphere(userLocation)
+                        .maxDistance(radiusInMeters)
         );
 
         // Only active items should be returned
@@ -133,14 +144,19 @@ public class SearchService {
         int candidateLimit = getSmartCandidateLimit(limit);
 
         Query query = new Query();
-        Point userLocation = new Point(request.getLongitude(), request.getLatitude());
-        Distance radius = new Distance(request.getRadiusInKm(), Metrics.KILOMETERS);
+
+        GeoJsonPoint userLocation = new GeoJsonPoint(
+                request.getLongitude(),
+                request.getLatitude()
+        );
+
+        double radiusInMeters = request.getRadiusInKm() * METERS_PER_KM;
 
         // First filter by geo boundary + active items.
         query.addCriteria(
                 Criteria.where("location")
                         .nearSphere(userLocation)
-                        .maxDistance(radius.getNormalizedValue())
+                        .maxDistance(radiusInMeters)
         );
         query.addCriteria(Criteria.where("isActive").is(true));
 

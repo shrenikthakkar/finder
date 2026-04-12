@@ -8,7 +8,7 @@ public class healthChecker {
     
     @GetMapping("/health")
     public String checkHealth() {
-        return "System is up and running!";
+        return "Spotzy System is up and running!";
     }
     
 }

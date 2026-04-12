@@ -17,7 +17,13 @@ public class CorsConfig {
         config.setAllowedOriginPatterns(List.of(
                 "http://localhost:*",
                 "http://127.0.0.1:*",
-                "http://10.0.2.2:*"
+                "http://10.0.2.2:*",
+                // ✅ Vercel domain
+                "https://finder-web-five.vercel.app",
+
+                // ✅ Your custom domain (future)
+                "https://spotzy.in",
+                "https://www.spotzy.in"
         ));
 
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));

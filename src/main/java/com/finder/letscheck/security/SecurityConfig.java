@@ -50,6 +50,7 @@ public class SecurityConfig {
 
                         // Public: anyone can view item reviews
                         .requestMatchers(HttpMethod.GET, "/reviews/item/**").permitAll()
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Protected: only logged-in users can write/update/delete reviews
                         .requestMatchers(HttpMethod.POST, "/reviews/item").authenticated()
